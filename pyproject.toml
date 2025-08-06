@@ -3,5 +3,9 @@ name = "teleprobe"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.14"
-dependencies = []
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.116.1",
+    "telethon>=1.40.0",
+    "uvicorn[standard]>=0.35.0",
+]

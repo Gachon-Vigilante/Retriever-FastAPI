@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telethon Auth 테스트</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #0088cc;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0077bb;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 20px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .prompt {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Telethon 인증 테스트</h1>
+
+        <div class="form-group">
+            <label for="wsUrl">WebSocket URL:</label>
+            <input type="text" id="wsUrl" value="ws://localhost:8000/client/auth" placeholder="WebSocket URL">
+        </div>
+
+        <div class="form-group">
+            <label for="apiId">API ID:</label>
+            <input type="text" id="apiId" placeholder="Telegram API ID">
+        </div>
+
+        <div class="form-group">
+            <label for="apiHash">API Hash:</label>
+            <input type="text" id="apiHash" placeholder="Telegram API Hash">
+        </div>
+
+        <button id="connectBtn" onclick="startAuth()">🚀 인증 시작</button>
+        <button id="disconnectBtn" onclick="disconnect()" disabled>❌ 연결 종료</button>
+
+        <div id="promptArea" style="display: none;">
+            <div class="prompt">
+                <div id="promptText"></div>
+                <input type="text" id="userInput" placeholder="입력하세요..." onkeypress="handleEnter(event)">
+                <button onclick="sendInput()">전송</button>
+            </div>
+        </div>
+
+        <div id="resultArea"></div>
+
+        <div class="log" id="log"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let isConnected = false;
+
+        function log(message, type = 'info') {
+            const logElement = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const color = type === 'error' ? '#dc3545' : type === 'success' ? '#28a745' : '#6c757d';
+            logElement.innerHTML += `<div style="color: ${color};">[${timestamp}] ${message}</div>`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function startAuth() {
+            const wsUrl = document.getElementById('wsUrl').value;
+            const apiId = document.getElementById('apiId').value;
+            const apiHash = document.getElementById('apiHash').value;
+
+            if (!apiId || !apiHash) {
+                alert('API ID와 API Hash를 입력해주세요!');
+                return;
+            }
+
+            log('WebSocket 연결 시도 중...', 'info');
+
+            try {
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = function() {
+                    log('WebSocket 연결 성공!', 'success');
+                    isConnected = true;
+
+                    document.getElementById('connectBtn').disabled = true;
+                    document.getElementById('disconnectBtn').disabled = false;
+
+                    // 인증 정보 전송
+                    const initData = {
+                        api_id: parseInt(apiId),
+                        api_hash: apiHash
+                    };
+
+                    log(`인증 정보 전송: ${JSON.stringify(initData)}`, 'info');
+                    ws.send(JSON.stringify(initData));
+                };
+
+                ws.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    log(`수신: ${JSON.stringify(data)}`, 'info');
+
+                    handleMessage(data);
+                };
+
+                ws.onclose = function() {
+                    log('WebSocket 연결 종료', 'error');
+                    isConnected = false;
+                    document.getElementById('connectBtn').disabled = false;
+                    document.getElementById('disconnectBtn').disabled = true;
+                    hidePrompt();
+                };
+
+                ws.onerror = function(error) {
+                    log(`WebSocket 오류: ${error}`, 'error');
+                };
+
+            } catch (error) {
+                log(`연결 실패: ${error}`, 'error');
+            }
+        }
+
+        function handleMessage(data) {
+            if (data.type === 'input_request') {
+                showPrompt(data.prompt, data.input_id);
+            } else if (data.type === 'success') {
+                showResult(data.session_string, 'success');
+                hidePrompt();
+            } else if (data.type === 'error') {
+                showResult(data.message, 'error');
+                hidePrompt();
+            }
+        }
+
+        function showPrompt(promptText, inputId = 0) {
+            document.getElementById('promptText').textContent = promptText;
+            document.getElementById('userInput').dataset.inputId = inputId;
+            document.getElementById('promptArea').style.display = 'block';
+            document.getElementById('userInput').focus();
+        }
+
+        function hidePrompt() {
+            document.getElementById('promptArea').style.display = 'none';
+            document.getElementById('userInput').value = '';
+        }
+
+        function sendInput() {
+            const input = document.getElementById('userInput').value;
+            const inputId = document.getElementById('userInput').dataset.inputId;
+
+            if (!input.trim()) return;
+
+            log(`사용자 입력: ${input}`, 'info');
+
+            if (ws && isConnected) {
+                ws.send(JSON.stringify({
+                    input: input,
+                    input_id: parseInt(inputId) || 0
+                }));
+                hidePrompt();
+            }
+        }
+
+        function handleEnter(event) {
+            if (event.key === 'Enter') {
+                sendInput();
+            }
+        }
+
+        function showResult(message, type) {
+            const resultArea = document.getElementById('resultArea');
+            const className = type === 'success' ? 'success' : 'error';
+
+            if (type === 'success') {
+                resultArea.innerHTML = `
+                    <div class="${className}">
+                        <h3>✅ 인증 성공!</h3>
+                        <p><strong>Session String:</strong></p>
+                        <textarea readonly style="width: 100%; height: 100px; font-family: monospace; font-size: 11px;">${message}</textarea>
+                        <button onclick="copyToClipboard('${message}')">📋 복사</button>
+                    </div>
+                `;
+            } else {
+                resultArea.innerHTML = `
+                    <div class="${className}">
+                        <h3>❌ 오류 발생</h3>
+                        <p>${message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('클립보드에 복사되었습니다!');
+            });
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+            }
+        }
+
+        // 페이지 언로드 시 연결 정리
+        window.addEventListener('beforeunload', function() {
+            if (ws) {
+                ws.close();
+            }
+        });
+    </script>
+</body>
+</html>
