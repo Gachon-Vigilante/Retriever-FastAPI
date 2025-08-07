@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from fastapi import WebSocket, APIRouter
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-from server import logger
+from utils import logger
 
 router = APIRouter(prefix="/auth")
 

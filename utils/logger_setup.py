@@ -3,9 +3,9 @@ from logging.handlers import RotatingFileHandler
 import os
 from typing import Literal
 
+from core.constants import LOG_PATH
 from .logger_config import FileFormatter, ColorFormatter, AccessLogConsoleFormatter, AccessLogFileFormatter
 
-LOG_PATH = os.path.join(os.path.dirname(__file__), "logs", "server.log")
 os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
 
 

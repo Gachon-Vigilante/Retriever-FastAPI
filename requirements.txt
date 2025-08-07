@@ -1,8 +1,15 @@
 # coding: utf-8
 
-# fastapi 관련 패키지
+# 유틸 패키지
+dotenv
+pydantic>=2.0.0
+
+# fastapi 관련
 fastapi
 uvicorn[standard]
 
 # Telethon
 telethon
+
+# JSON 직렬화 지원
+python-dateutil
