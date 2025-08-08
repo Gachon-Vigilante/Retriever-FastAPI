@@ -16,7 +16,8 @@ from telethon.sync import types
 from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
 from telethon.tl.types import PeerChannel
 
-from utils import logger
+from utils import get_logger
+logger = get_logger()
 
 if typing.TYPE_CHECKING:
     from teleprobe.base import TeleprobeClient
@@ -120,7 +121,7 @@ class ConnectMethods:
         """텔레그램 초대 링크를 수락하고 채널 엔티티를 반환합니다."""
         try:
             # 연결 상태 확인
-            if not await self._ensure_connected():
+            if not await self.ensure_connected():
                 return TelegramConnectionResult(
                     success=False, 
                     error_type=TelegramConnectionError.UNKNOWN_ERROR,
@@ -159,7 +160,7 @@ class ConnectMethods:
         """채널 ID, @username, 초대 링크 등 다양한 키로 텔레그램 채널에 연결합니다."""
         try:
             # 연결 상태 확인
-            if not await self._ensure_connected():
+            if not await self.ensure_connected():
                 return TelegramConnectionResult(
                     success=False, 
                     error_type=TelegramConnectionError.UNKNOWN_ERROR,

@@ -3,12 +3,13 @@ from typing import TYPE_CHECKING, Optional, Union
 from fastapi import APIRouter
 
 from teleprobe.models import ChannelInfo
-from utils import logger
+from utils import get_logger
 
 if TYPE_CHECKING:
     from teleprobe.base import TeleprobeClient
 
 
+logger = get_logger()
 router = APIRouter(prefix="/channel")
 
 
@@ -27,7 +28,7 @@ class ChannelMethods:
         Returns:
             ChannelInfo 객체 또는 연결 실패시 None
         """
-        if not await self._ensure_connected():
+        if not await self.ensure_connected():
             return None
 
         connection_result = await self.connect_channel(channel_key)

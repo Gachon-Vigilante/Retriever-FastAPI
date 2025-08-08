@@ -13,3 +13,6 @@ telethon
 
 # JSON 직렬화 지원
 python-dateutil
+
+# sqlite db 사용
+sqlalchemy

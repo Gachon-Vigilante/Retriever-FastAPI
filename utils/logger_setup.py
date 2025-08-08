@@ -77,7 +77,7 @@ def setup_uvicorn_loggers() -> None:
                  get_console_handler(AccessLogConsoleFormatter())
                  )
 
-def get_logger(name:Literal["uvicorn", "uvicorn.error", "uvicorn.access"] = "uvicorn"):
+def get_customized_logger(name:Literal["uvicorn", "uvicorn.error", "uvicorn.access"] = "uvicorn"):
     setup_uvicorn_loggers()
     return logging.getLogger(name)
 

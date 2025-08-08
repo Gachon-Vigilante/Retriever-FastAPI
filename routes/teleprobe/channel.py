@@ -1,40 +1,19 @@
-from typing import Annotated, Union
-from fastapi import APIRouter, Path, Depends, HTTPException, status
-from fastapi.responses import JSONResponse
+from typing import Annotated
 
-from core.constants import TELEGRAM_API_ID, TELEGRAM_API_HASH, TELEGRAM_SESSION_STRING
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from routes.teleprobe.models import channelKeyPath, TeleprobeClientManager
 from teleprobe.base import TeleprobeClient
-from teleprobe.models import ChannelInfo, TelegramCredentials
-from routes.teleprobe.models import channelKeyPath
+from teleprobe.models import ChannelInfo
+from utils import get_logger
+
+logger = get_logger()
 
 router = APIRouter(prefix="/channel")
 
-def get_teleprobe_client(params: Annotated[TelegramCredentials, Depends()]) -> TeleprobeClient:
-    """
-    TelegramCredentials에서 제공된 자격 증명으로 TeleprobeClient 인스턴스를 생성합니다.
-    
-    이 의존성 함수는 요청 파라미터에서 api_id, api_hash, session_string을 
-    추출하여 TeleprobeClient를 생성합니다.
-    """
-    try:
-        # FastAPI의 각 요청은 별도의 이벤트 루프에서 실행되므로,
-        # 기존 인스턴스가 있더라도 각 API 요청마다 새 인스턴스 생성
-        client = TeleprobeClient.create_new(
-            api_id=params.api_id,
-            api_hash=params.api_hash,
-            session_string=params.session_string,
-            phone=params.phone
-        )
-        return client
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"텔레그램 클라이언트 생성 중 오류 발생: {str(e)}"
-        )
-
 @router.get("/{channel_key}", response_model=ChannelInfo)
 async def get_channel_info(
-    client: Annotated[TeleprobeClient, Depends(get_teleprobe_client)],
+    client: Annotated[TeleprobeClient, Depends(TeleprobeClientManager.get_client_by_token)],
     channel_key: channelKeyPath,
 ):
     """
@@ -54,6 +33,7 @@ async def get_channel_info(
     """
     try:
         # 채널 정보 조회 (비동기 방식)
+        logger.info(f"[ChannelInfo] 채널 정보 조회 요청: {channel_key}")
         channel_info = await client.get_channel_info(channel_key)
         
         # 결과가 없는 경우 404 오류
@@ -64,11 +44,22 @@ async def get_channel_info(
             )
         
         # datetime을 ISO 형식 문자열로 변환하여 직렬화
+        logger.info(f"[ChannelInfo]채널 정보 조회 요청: {channel_key}")
         return channel_info
         
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"잘못된 채널 키 형식 또는 채널 키가 없음: `{str(channel_key)}`"
+        )
+    except ConnectionError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="텔레그램 서비스에 연결할 수 없습니다"
+        )
     except Exception as e:
-        # 오류 처리
+        logger.error(f"[ChannelInfo] 예상하지 못한 오류 발생: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"채널 정보 조회 중 오류 발생: {str(e)}"
+            detail="서버 내부 오류가 발생했습니다"
         )

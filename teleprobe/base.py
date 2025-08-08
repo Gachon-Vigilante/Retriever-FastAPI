@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from typing import Optional, Union, Any, List, Dict, ClassVar
 
 from telethon.sessions import Session, StringSession
@@ -8,10 +7,8 @@ from telethon.tl.types import User, Message
 
 from .channel import ChannelMethods
 from .connect import ConnectMethods
+from .errors import ApiIdInvalidError, ApiHashInvalidError, TelegramSessionStringInvalidError
 from .models import TelegramCredentials
-
-logger = logging.getLogger(__name__)
-
 
 class TeleprobeClient(
     ConnectMethods,
@@ -136,13 +133,39 @@ class TeleprobeClient(
                 try:
                     old_instance.run_until_complete(old_instance.disconnect())
                 except Exception as e:
-                    logger.warning(f"[Client] 기존 인스턴스 정리 중 오류: {e}")
+                    logger.warning(f"[ClientCreate] 기존 인스턴스 정리 중 오류: {e}")
 
             del cls._instances[api_id]
-            logger.info(f"[Client] 기존 인스턴스 제거 후 새 인스턴스 생성 (api_id: {api_id})")
+            logger.info(f"[ClientCreate] 기존 인스턴스 제거 후 새 인스턴스 생성 (api_id: {api_id})")
 
         # 새 인스턴스 생성
         return cls(
+            api_id=api_id,
+            api_hash=api_hash,
+            session=session,
+            phone=phone,
+            session_string=session_string
+        )
+    @classmethod
+    def register(
+        cls,
+        api_id: int,
+        api_hash: str,
+        session_string: str,
+        session: Optional[Union[str, Session]] = None,
+        phone: Optional[str] = None,
+    ) -> 'TeleprobeClient':
+        if not api_id:
+            logger.error("[ClientRegister] 세션 정보에 API ID가 제공되지 않았습니다.")
+            raise ApiIdInvalidError("API ID is not provided.")
+        if not api_hash:
+            logger.error("[ClientRegister] 세션 정보에 API Hash가 제공되지 않았습니다.")
+            raise ApiHashInvalidError("API Hash is not provided.")
+        if not session_string:
+            logger.error("[ClientRegister] 세션 정보에 Session String이 제공되지 않았습니다.")
+            raise TelegramSessionStringInvalidError("Session string is not provided.")
+
+        return cls.create_new(
             api_id=api_id,
             api_hash=api_hash,
             session=session,
@@ -279,7 +302,7 @@ class TeleprobeClient(
             await self._client.disconnect()
             logger.info(f"[Client] 텔레그램 연결 해제 (api_id: {self.api_id})")
 
-    async def _ensure_connected(self) -> bool:
+    async def ensure_connected(self) -> bool:
         """클라이언트가 연결되어 있는지 확인하고, 연결되어 있지 않으면 연결을 시도합니다.
 
         Returns:
