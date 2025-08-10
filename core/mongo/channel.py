@@ -2,12 +2,17 @@ import re
 from datetime import datetime
 from typing import Optional, List, Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from telethon.tl.types import Channel as TelethonChannel
+
+from utils import Logger
 
 from .types import ChannelStatus
 from .connections import MongoCollections
+from .base import BaseMongoObject
 
+
+logger = Logger(__name__)
 
 class ChannelRestrictionReason(BaseModel):
     """채널 제한 사유"""
@@ -16,7 +21,7 @@ class ChannelRestrictionReason(BaseModel):
     text: str = Field(description="제한 메시지")
 
 
-class Channel(BaseModel):
+class Channel(BaseMongoObject):
     """텔레그램 채널 정보 모델
 
     Telethon의 Channel 클래스의 모든 핵심 속성을 포함하는 완전한 채널 모델입니다.
@@ -27,7 +32,7 @@ class Channel(BaseModel):
         title="채널 ID",
         description="텔레그램 채널의 고유 식별자",
         examples=[1234567890],
-        serialization_alias="_id"
+        serialization_alias="id"
     )
 
     access_hash: Optional[int] = Field(
@@ -62,9 +67,9 @@ class Channel(BaseModel):
         examples=["2024-01-01T00:00:00Z"]
     )
 
-    discovered_at: datetime = Field(
+    updated_at: datetime = Field(
         title="발견 일시",
-        description="채널이 처음으로 발견된 일시",
+        description="채널의 변경사항이 발견된 일시(최초 발견 포함)",
         serialization_alias="discoveredAt",
         examples=["2024-01-01T12:00:00Z"],
         default_factory=datetime.now
@@ -297,7 +302,7 @@ class Channel(BaseModel):
 
     def days_since_discovered(self) -> int:
         """발견 후 경과 일수"""
-        return (datetime.now() - self.discovered_at).days
+        return (datetime.now() - self.updated_at).days
 
     # === Telethon 변환 메서드 ===
     @classmethod
@@ -342,16 +347,13 @@ class Channel(BaseModel):
             # photo=telethon_channel.photo,
         )
 
-    class Config:
-        """Pydantic 설정"""
-        use_enum_values = True
-        json_encoders = {
+    model_config = ConfigDict(
+        **BaseMongoObject.model_config,
+        use_enum_values=True,
+        json_encoders={
             datetime: lambda dt: dt.isoformat() if dt else None
-        }
-        validate_by_name = True
-        arbitrary_types_allowed = True
-
-        json_schema_extra = {
+        },
+        json_schema_extra={
             "example": {
                 "id": 1234567890,
                 "title": "테스트 채널",
@@ -365,6 +367,29 @@ class Channel(BaseModel):
                 "status": "active"
             }
         }
+    )
+
+    def __eq__(self, other):
+        return (
+                self.id == other.id and
+                self.username == other.username and
+                self.title == other.title and
+                self.username == other.username
+        )
 
     def store(self) -> None:
-        MongoCollections().channels.insert_one(self.model_dump())
+        channel_collection = MongoCollections().channels
+        existing_channel = channel_collection.find_one({"id": self.id})
+        if existing_channel.pop("_id", None):
+            if self == Channel(**existing_channel):
+                logger.debug(f"채널이 이미 수집되었고, 핵심 정보가 동일합니다. 채널 정보를 업데이트합니다. Channel ID: {self.id}")
+                MongoCollections().channels.update_one(
+                    {"id": self.id},
+                    {"$set": self.model_dump()}
+                )
+                return
+            else:
+                logger.debug(f"채널이 이미 수집되었고, 핵심 정보가 업데이트되었습니다. 새로운 채널 정보를 저장합니다. Channel ID: {self.id}")
+
+        logger.debug(f"새로운 채널을 수집했습니다. Channel ID: {self.id}")
+        channel_collection.insert_one(self.model_dump())

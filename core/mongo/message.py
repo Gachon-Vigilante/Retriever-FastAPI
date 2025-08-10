@@ -1,24 +1,18 @@
 from datetime import datetime
-from typing import List, Optional, Any
+from typing import Optional, Any
 
-from pydantic import BaseModel, Field
+from pydantic import Field, ConfigDict
 from telethon.tl.types import Message as TelethonMessage
 
-from .types import SenderType
-from .connections import MongoCollections
 from utils import Logger
+from .base import BaseMongoObject
+from .connections import MongoCollections
+from .types import SenderType
 
+logger = Logger(__name__)
 
-logger = Logger("MongoMessage")
-
-class Message(BaseModel):
+class Message(BaseMongoObject):
     """텔레그램 메시지 모델 (Telethon Message 기반)"""
-    oid: Optional[str] = Field(
-        default=None,
-        title="Object ID",
-        description="MongoDB object ID (string representation)",
-        exclude=True # MongoDB에 json 직렬화 후 삽입 시 충돌을 방지하기 위해 직렬화 시에는 제외
-    )
 
     # === 채팅 정보 ===
     chat_id: Optional[int] = Field(
@@ -196,11 +190,12 @@ class Message(BaseModel):
         description="미디어 그룹인 경우의 그룹 ID"
     )
 
-    model_config = {
-        "json_encoders": {
+    model_config = ConfigDict(
+        **BaseMongoObject.model_config,
+        json_encoders = {
             datetime: lambda dt: dt.isoformat() if dt else None
         },
-        "json_schema_extra": {
+        json_schema_extra = {
             "example": {
                 "id": 12345,
                 "message": "안녕하세요! 이것은 예시 메시지입니다.",
@@ -217,12 +212,7 @@ class Message(BaseModel):
                 ]
             }
         }
-    }
-
-    def __init__(self, **data):
-        super().__init__(**data)
-        if _id := data.get("_id"):
-            self.oid = str(data["_id"])
+    )
 
     @classmethod
     def from_telethon(
@@ -261,7 +251,7 @@ class Message(BaseModel):
     def store(self):
         chat_collection = MongoCollections().chats
         existing_message = chat_collection.find_one({"id": self.id, "chat_id": self.chat_id})
-        if existing_message:
+        if existing_message.pop("_id", None):
             if self == Message(**existing_message):
                 return
             else:

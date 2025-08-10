@@ -8,7 +8,7 @@ from teleprobe.base import TeleprobeClient
 from core.mongo.schemas import Channel
 from utils import Logger
 
-logger = Logger("RoutesTelegramChannels")
+logger = Logger(__name__)
 
 router = APIRouter(prefix="/channel")
 
@@ -49,12 +49,6 @@ async def post_channel_info(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"채널 정보를 찾을 수 없습니다: {channel_key}"
             )
-        
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"잘못된 채널 키 형식 또는 채널 키가 없음: `{str(channel_key)}`"
-        )
     except ConnectionError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

@@ -96,7 +96,7 @@ class FileFormatter(BasicFormatter):
         """
         로그 파일에 저장할 기본 포맷을 설정한다.
         """
-        fmt = fmt or "%(asctime)s, %(levelname)s, %(message)s, %(filename)s, %(directory)s"
+        fmt = fmt or "%(name)s, %(asctime)s, %(levelname)s, %(message)s, %(filename)s, %(directory)s"
         super().__init__(fmt)
 
     def format(self, record: logging.LogRecord) -> str:
@@ -123,7 +123,7 @@ class ColorFormatter(BasicFormatter):
         """
         컬러 콘솔 로그 출력을 위한 기본 포맷을 설정한다.
         """
-        fmt = fmt or Ansi.FG['white'] + "[%(asctime)s] %(levelname)s : %(message)s (%(filename)s in %(directory)s)" + Ansi.RESET
+        fmt = fmt or Ansi.FG['white'] + "[%(asctime)s] %(levelname)s : [%(name)s] %(message)s (%(filename)s in %(directory)s)" + Ansi.RESET
         super().__init__(fmt)
 
     def format(self, record: logging.LogRecord) -> str:
@@ -137,6 +137,7 @@ class ColorFormatter(BasicFormatter):
         """
         color = self.COLORS.get(record.levelno, Ansi.FG['white'])
         record.levelname = f"{Ansi.BOLD}{color}{record.levelname:<8}{Ansi.FG['white']}"
+        record.name = f"{Ansi.BOLD}{color}{record.name}{Ansi.FG['white']}"
         record.msg = f"{Ansi.DEFAULT}{record.msg}{Ansi.FG['white']}"
         record.filename = f"{color}{record.filename}{Ansi.FG['white']}"
         record.directory = f"{Ansi.ITALIC}{self.get_directory_format(record)}{Ansi.FG['white']}"

@@ -2,8 +2,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from utils import logger
+from utils import Logger
 from routes import root_router
+
+
+logger = Logger(__name__)
 
 
 @asynccontextmanager

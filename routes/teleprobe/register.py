@@ -14,7 +14,7 @@ from teleprobe.errors import ApiIdInvalidError, ApiHashInvalidError, TelegramSes
 from teleprobe.models import TelegramCredentials
 from utils import Logger
 
-logger = Logger("TeleprobeRegister")
+logger = Logger(__name__)
 
 
 # 응답 모델

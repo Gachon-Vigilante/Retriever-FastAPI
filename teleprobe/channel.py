@@ -10,7 +10,7 @@ __all__ = [
     'TeleprobeClient',
     'ChannelMethods',
 ]
-logger = Logger("TeleprobeChannels")
+logger = Logger(__name__)
 
 class ChannelMethods:
     async def get_channel(

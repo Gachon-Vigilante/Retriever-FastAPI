@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from telethon.tl.types import User as TelethonUser, Channel as TelethonChannel
 
 from core.mongo.types import SenderType
-from handlers import FakeMessageHandler
+from handlers import MessageHandler
 from routes.teleprobe.models import channelKeyPath, TeleprobeClientManager
 from teleprobe.base import TeleprobeClient
 from core.mongo.schemas import Message
@@ -12,7 +12,7 @@ from utils import Logger
 from ..responses import SuccessfulResponse
 
 
-logger = Logger("RoutesTelegramMessages")
+logger = Logger(__name__)
 
 router = APIRouter(prefix="/channel")
 
@@ -52,37 +52,10 @@ async def post_messages_from_channel(
                 detail=f"채널 정보를 찾을 수 없습니다: {channel_key}"
             )
 
-        async for telethon_message in client.iter_messages(channel_entity, FakeMessageHandler()):
-            sender = await telethon_message.get_sender()
-            if not sender:
-                logger.error(f"메세지 송신자를 받아올 수 없습니다.")
-                sender_id = sender_type = None
-            else:
-                sender_id = sender.id
-                if isinstance(sender, TelethonUser):
-                    sender_type = SenderType.USER
-                elif isinstance(sender, TelethonChannel):
-                    sender_type = SenderType.CHANNEL
-                else:
-                    logger.warning(f"메세지 송신자가 알려지지 않은 타입입니다. "
-                                   f"Expected `User` or `Channel`, got `{type(sender)}`")
-                    sender_type = None
-            message: Message = Message.from_telethon(
-                telethon_message,
-                sender_id=sender_id,
-                chat_id=channel_entity.id,
-                sender_type=sender_type
-            )
-            message.store()
+        client.iter_messages(channel_entity, MessageHandler())
         logger.info("채널 내의 모든 메세지를 수집하고 DB에 저장했습니다.")
         return SuccessfulResponse(message=f"채널 내의 모든 메세지를 수집하고 DB에 저장했습니다. "
                                   f"Channel ID: {channel_entity.id}, Channel Type: {type(channel_entity)}")
-
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"잘못된 채널 키 형식 또는 채널 키가 없음: `{str(channel_key)}`"
-        )
     except ConnectionError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

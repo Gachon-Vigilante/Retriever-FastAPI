@@ -24,7 +24,7 @@ __all__ = [
     'TeleprobeClient',
     'ConnectMethods',
 ]
-logger = Logger("TeleprobeChannels")
+logger = Logger(__name__)
 
 
 class TelegramConnectionError(Enum):

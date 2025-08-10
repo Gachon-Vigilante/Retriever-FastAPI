@@ -63,21 +63,18 @@ def setup_logger(
     logger.propagate = False
     return logger
 
+setup_logger("uvicorn", get_file_handler(), get_console_handler())
+setup_logger(
+    "uvicorn.access",
+    get_file_handler(AccessLogFileFormatter()),
+    get_console_handler(AccessLogConsoleFormatter())
+)
 
-def setup_uvicorn_loggers() -> None:
-    """
-    FastAPI(Uvicorn) 서버의 주요 로거(uvicorn, uvicorn.error, uvicorn.access)를 초기화한다.
-
-    :return: 없음
-    :rtype: None
-    """
-    setup_logger("uvicorn", get_file_handler(), get_console_handler())
-    setup_logger("uvicorn.access",
-                 get_file_handler(AccessLogFileFormatter()),
-                 get_console_handler(AccessLogConsoleFormatter())
-                 )
-
-def get_customized_logger(name:Literal["uvicorn", "uvicorn.error", "uvicorn.access"] = "uvicorn"):
-    setup_uvicorn_loggers()
-    return logging.getLogger(name)
+def get_customized_logger(
+        name: str = "uvicorn" # "uvicorn", "uvicorn.error", "uvicorn.access" 등
+):
+    logger = logging.getLogger(name) # logger 구하기
+    setup_logger(name, get_file_handler(), get_console_handler()) # handler를 setup해서 반환
+    
+    return logger
 

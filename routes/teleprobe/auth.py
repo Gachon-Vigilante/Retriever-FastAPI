@@ -8,7 +8,7 @@ from telethon import TelegramClient
 from telethon.sessions import StringSession
 from utils import Logger
 
-logger = Logger("TeleprobeAuth")
+logger = Logger(__name__)
 
 
 router = APIRouter(prefix="/auth")

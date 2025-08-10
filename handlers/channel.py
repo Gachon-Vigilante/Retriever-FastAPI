@@ -12,7 +12,7 @@ class ChannelHandler:
     Channel object, and perform storage operations. It also allows for logging of messages
     related to these operations.
     """
-    logger = Logger("ChannelHandler")
+    logger = Logger(__name__)
 
     def __init__(self):
         pass

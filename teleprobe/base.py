@@ -13,7 +13,7 @@ from .models import TelegramCredentials
 from .constants import Logger
 
 
-logger = Logger("TeleprobeClient")
+logger = Logger(__name__)
 
 class TeleprobeClient(
     ConnectMethods,
