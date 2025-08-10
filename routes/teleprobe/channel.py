@@ -1,14 +1,13 @@
-from sched import Event
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 
+from core.mongo.schemas import Channel
 from handlers import ChannelHandler, EventHandler
+from routes.responses import SuccessfulResponse, TeleprobeHTTPException
 from routes.teleprobe.models import channelKeyPath, TeleprobeClientManager
 from teleprobe.base import TeleprobeClient
-from core.mongo.schemas import Channel
 from utils import Logger
-from routes.responses import SuccessfulResponse, TeleprobeHTTPException
 
 logger = Logger(__name__)
 

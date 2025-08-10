@@ -1,17 +1,26 @@
+"""텔레그램 채널 관리 메서드 모듈 - 채널 모니터링 및 이벤트 처리
+
+이 모듈은 텔레그램 채널의 조회, 모니터링 시작/중단, 이벤트 핸들러 관리 등의
+채널 관련 작업을 수행하는 메서드들을 제공합니다. TeleprobeClient의 mixin으로 사용되어
+채널 관리 기능을 확장합니다.
+
+Telegram Channel Management Methods Module - Channel monitoring and event handling
+
+This module provides methods for performing channel-related tasks such as channel retrieval,
+starting/stopping monitoring, and event handler management. Used as a mixin for TeleprobeClient
+to extend channel management functionality.
+"""
+
 from typing import TYPE_CHECKING, Optional, Union, Callable, Coroutine, Any
 
 from telethon.events import NewMessage
 from telethon.tl.types import Channel as TelethonChannel
 
-from handlers.event import EventHandler
 from .constants import Logger
 from .errors import ChannelKeyInvalidError, ChannelNotWatchedError, ChannelAlreadyWatchedError
 
 if TYPE_CHECKING:
     from teleprobe.base import TeleprobeClient
-
-import asyncio
-
 
 __all__ = [
     'TeleprobeClient',
@@ -20,28 +29,100 @@ __all__ = [
 logger = Logger(__name__)
 
 class ChannelMethods:
+    """텔레그램 채널 관리 및 모니터링을 위한 메서드 모음 클래스
+
+    채널 조회, 모니터링 시작/중단, 이벤트 핸들러 관리 등 채널과 관련된
+    모든 작업을 수행하는 메서드들을 제공합니다. TeleprobeClient의 mixin으로 사용되어
+    채널 관리 기능을 확장하며, 이벤트 기반 메시지 모니터링을 지원합니다.
+
+    Collection class of methods for Telegram channel management and monitoring
+
+    Provides methods for performing all channel-related tasks such as channel retrieval,
+    starting/stopping monitoring, and event handler management. Used as a mixin for TeleprobeClient
+    to extend channel management functionality and supports event-based message monitoring.
+
+    Methods:
+        get_channel: 채널 조회 및 핸들러 실행
+                    Channel retrieval and handler execution
+        watch: 채널 모니터링 시작
+              Start channel monitoring
+        unwatch: 채널 모니터링 중단
+                Stop channel monitoring
+
+    Examples:
+        # TeleprobeClient에서 mixin으로 사용됨
+        class TeleprobeClient(ChannelMethods, ConnectMethods, ...):
+            pass
+
+        client = TeleprobeClient(...)
+
+        # 채널 조회
+        channel = await client.get_channel("@channelname")
+
+        # 모니터링 시작
+        await client.watch("@channelname", message_handler)
+
+        # 모니터링 중단
+        await client.unwatch("@channelname")
+
+    Note:
+        이 클래스는 TeleprobeClient의 mixin으로 사용되며,
+        단독으로 인스턴스화하지 않습니다. 이벤트 핸들러는
+        클라이언트의 _event_handlers 딕셔너리로 관리됩니다.
+
+        This class is used as a mixin for TeleprobeClient
+        and is not instantiated independently. Event handlers are
+        managed through the client's _event_handlers dictionary.
+    """
     async def get_channel(
             self:'TeleprobeClient',
             channel_key: Union[int, str],
             handler: Optional[Callable[[TelethonChannel], Coroutine[Any, Any, None]]] = None
     ) -> Optional[TelethonChannel]:
-        """
-        Retrieves a channel based on the given channel key and executes an optional
-        handler if provided. The method ensures that the client is connected and
-        attempts to retrieve the channel entity. If the connection fails, `None`
-        is returned. The retrieved channel can be processed via a handler if
-        applicable.
+        """채널을 조회하고 선택적으로 핸들러를 실행하는 비동기 메서드
 
-        Parameters:
-            channel_key (Union[int, str]): The unique identifier or channel key to
-                retrieve the channel (e.g., channel ID or username).
-            handler (Optional[Callable[[TelethonChannel], Coroutine[Any, Any, None]]]): A coroutine function
-                to process the retrieved channel. Must accept a single argument of
-                type `TelethonChannel` and return a coroutine.
+        제공된 채널 키를 사용하여 채널을 조회하고, 핸들러가 제공된 경우 실행합니다.
+        클라이언트 연결을 확인하고 채널 엔티티 조회를 시도하며, 연결 실패 시 None을 반환합니다.
+        조회된 채널은 핸들러를 통해 추가 처리할 수 있습니다.
+
+        Asynchronous method to retrieve channel and optionally execute handler
+
+        Retrieves channel using provided channel key and executes handler if provided.
+        Ensures client connection and attempts to retrieve channel entity, returning None on connection failure.
+        Retrieved channel can be processed through handler for additional operations.
+
+        Args:
+            channel_key (Union[int, str]): 채널을 조회하기 위한 고유 식별자
+                                         Unique identifier to retrieve channel
+                                         - int: 채널 ID (예: -1001234567890)
+                                         - str: 사용자명(@username) 또는 초대 링크
+            handler (Optional[Callable]): 조회된 채널을 처리할 코루틴 함수 (선택적)
+                                        Coroutine function to process retrieved channel (optional)
+                                        - TelethonChannel을 매개변수로 받아야 함
+                                        - Must accept TelethonChannel as parameter
 
         Returns:
-            Optional[TelethonChannel]: The retrieved channel object if the operation is
-            successful; otherwise, `None`.
+            Optional[TelethonChannel]: 성공 시 조회된 채널 객체, 실패 시 None
+                                     Retrieved channel object on success, None on failure
+
+        Examples:
+            # 기본 채널 조회
+            channel = await client.get_channel("@channelname")
+            if channel:
+                print(f"채널명: {channel.title}")
+
+            # 핸들러와 함께 조회
+            async def channel_handler(channel):
+                print(f"조회된 채널: {channel.title}")
+
+            channel = await client.get_channel(-1001234567890, channel_handler)
+
+        Note:
+            이 메서드는 내부적으로 connect_channel을 사용하여 채널에 연결하므로,
+            초대 링크나 새로운 채널의 경우 자동으로 참여가 이루어집니다.
+
+            This method internally uses connect_channel to connect to the channel,
+            so automatic joining occurs for invite links or new channels.
         """
         await self.ensure_connected()
 
