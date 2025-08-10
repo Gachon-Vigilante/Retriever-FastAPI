@@ -15,12 +15,17 @@ from telethon.errors import (
 from telethon.sync import types
 from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
 from telethon.tl.types import PeerChannel, Channel as TelethonChannel
+from .constants import logger
 
-from utils import get_logger
-logger = get_logger()
 
 if typing.TYPE_CHECKING:
     from teleprobe.base import TeleprobeClient
+
+
+__all__ = [
+    'TeleprobeClient',
+    'ConnectMethods',
+]
 
 
 class TelegramConnectionError(Enum):

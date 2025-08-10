@@ -6,9 +6,7 @@ from telethon.tl.types import Message as TelethonMessage
 
 from .types import SenderType
 from .connections import MongoCollections
-from utils import get_logger
-
-logger = get_logger()
+from utils import logger
 
 
 class Message(BaseModel):

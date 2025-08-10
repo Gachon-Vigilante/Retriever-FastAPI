@@ -10,8 +10,7 @@ from .connect import ConnectMethods
 from .errors import ApiIdInvalidError, ApiHashInvalidError, TelegramSessionStringInvalidError
 from .message import MessageMethods
 from .models import TelegramCredentials
-
-from utils import logger
+from .constants import logger
 
 class TeleprobeClient(
     ConnectMethods,

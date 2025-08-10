@@ -1,14 +1,16 @@
 from typing import TYPE_CHECKING, Optional, Union
 
 from telethon.tl.types import Channel
-from utils import get_logger
+from .constants import logger
+
 
 if TYPE_CHECKING:
     from teleprobe.base import TeleprobeClient
 
-
-logger = get_logger()
-
+__all__ = [
+    'TeleprobeClient',
+    'ChannelMethods',
+]
 
 class ChannelMethods:
     async def get_channel(

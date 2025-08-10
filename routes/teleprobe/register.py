@@ -12,10 +12,8 @@ from core.sqlite import TelegramToken, get_db
 from teleprobe.base import TeleprobeClient
 from teleprobe.errors import ApiIdInvalidError, ApiHashInvalidError, TelegramSessionStringInvalidError
 from teleprobe.models import TelegramCredentials
-from utils import get_logger
+from utils import logger
 
-
-logger = get_logger()
 
 # 응답 모델
 class RegisterResponse(BaseModel):

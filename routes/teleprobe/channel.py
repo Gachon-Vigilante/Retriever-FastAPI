@@ -5,9 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from routes.teleprobe.models import channelKeyPath, TeleprobeClientManager
 from teleprobe.base import TeleprobeClient
 from core.mongo.schemas import Channel
-from utils import get_logger
-
-logger = get_logger()
+from utils import logger
 
 router = APIRouter(prefix="/channel")
 

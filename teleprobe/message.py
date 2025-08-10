@@ -5,8 +5,6 @@ from telethon.tl.types import (
     Chat as TelethonChat,
 )
 
-from utils import logger
-
 if TYPE_CHECKING:
     from .base import TeleprobeClient
 
