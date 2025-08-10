@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Optional
+from contextlib import contextmanager
 
 from sqlalchemy import create_engine, Integer, String, Text, DateTime
 from sqlalchemy.ext.declarative import declarative_base
@@ -9,6 +10,7 @@ from core.constants import SQLALCHEMY_DATABASE_URL
 
 
 # 의존성 함수들
+@contextmanager
 def get_db():
     """데이터베이스 세션 의존성"""
     db = SessionLocal()

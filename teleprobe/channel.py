@@ -43,24 +43,19 @@ class ChannelMethods:
             Optional[TelethonChannel]: The retrieved channel object if the operation is
             successful; otherwise, `None`.
         """
-        if not await self.ensure_connected():
-            return None
+        await self.ensure_connected()
 
-        connection_result = await self.connect_channel(channel_key)
-        if not connection_result.success:
-            logger.warning("채널 정보를 받아올 수 없습니다. 채널 연결에 실패했습니다.")
-            return None
+        channel = await self.connect_channel(channel_key)
 
-        channel = connection_result.entity
         if handler and isinstance(handler, Callable) and isinstance(channel, TelethonChannel):
             await handler(channel)
 
-        return connection_result.entity
+        return channel
 
     async def watch(
             self: 'TeleprobeClient',
             channel_key: Union[int, str],
-            handler: Optional[Callable[[None], Coroutine[Any, Any, None]]] = None
+            handler: Optional[Callable[[Any], Coroutine[Any, Any, None]]] = None
     ):
         """
         Watches a specified channel for new messages and assigns an event handler to process the
@@ -80,10 +75,12 @@ class ChannelMethods:
         if channel:
             with self._managing_event_handler:
                 if self._event_handlers.get(channel.id):
-                    err = (f"이미 모니터링 중인 채널입니다. "
-                           f"Channel ID: {channel.id}, title: {channel.title}, username: @{channel.username}")
-                    logger.error(err)
-                    raise ChannelAlreadyWatchedError(err)
+                    err = ChannelAlreadyWatchedError(f"이미 모니터링 중인 채널입니다. "
+                                                     f"Channel ID: {channel.id}, "
+                                                     f"title: {channel.title}, "
+                                                     f"username: @{channel.username}")
+                    logger.error(err.message)
+                    raise err
 
                 self.client.add_event_handler(
                     callback=handler,
@@ -93,9 +90,9 @@ class ChannelMethods:
                 logger.info(f"채널 모니터링을 시작했습니다. "
                             f"Channel ID: {channel.id}, title: {channel.title}, username: @{channel.username}")
         else:
-            err = f"모니터링할 채널에 연결할 수 없습니다. Channel key: {channel_key}"
-            logger.error(err)
-            raise ChannelKeyInvalidError(err)
+            err = ChannelKeyInvalidError(f"모니터링할 채널에 연결할 수 없습니다. Channel key: {channel_key}")
+            logger.error(err.message)
+            raise err
 
 
     async def unwatch(
@@ -113,9 +110,10 @@ class ChannelMethods:
         elif isinstance(channel_key, int):
             channel_id = channel_key # 채널이 발견되지 않았을 경우, 채널 ID로 대신 이벤트 핸들러 검색 시도
         else:
-            err = f"채널에 더이상 접근이 불가능하거나, 잘못된 채널 식별자를 입력했습니다. Channel key: {channel_key}"
-            logger.error(err)
-            raise ChannelKeyInvalidError(err)
+            err = ChannelKeyInvalidError(f"채널에 더이상 접근이 불가능하거나, 잘못된 채널 식별자를 입력했습니다. "
+                                         f"Channel key: {channel_key}")
+            logger.error(err.message)
+            raise err
 
         with self._managing_event_handler:
             # 이벤트 핸들러 취소 및 제거
@@ -125,9 +123,11 @@ class ChannelMethods:
                 logger.info(f"채널 모니터링을 중단했습니다. "
                             f"Channel ID: {channel_id}, title: {channel.title}, username: @{channel.username}")
             else:
-                err = (f"모니터링을 중단하려는 채널은 현재 모니터링 중이 아닙니다. "
-                       f"Channel ID: {channel_id}, title: {channel.title}, username: @{channel.username}")
+                err = ChannelNotWatchedError(
+                    f"모니터링을 중단하려는 채널은 현재 모니터링 중이 아닙니다. "
+                    f"Channel ID: {channel_id}, title: {channel.title}, username: @{channel.username}"
+                )
                 logger.error(err)
-                raise ChannelNotWatchedError(err)
+                raise err
 
 

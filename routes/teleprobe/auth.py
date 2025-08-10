@@ -6,6 +6,9 @@ from contextlib import contextmanager
 from fastapi import WebSocket, APIRouter
 from telethon import TelegramClient
 from telethon.sessions import StringSession
+
+from routes.teleprobe.register import register, RegisterResponse
+from teleprobe.models import TelegramCredentials
 from utils import Logger
 
 logger = Logger(__name__)
@@ -108,7 +111,7 @@ async def telethon_auth_callback(websocket: WebSocket):
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
 
-                async def start_auth():
+                async def start_auth() -> RegisterResponse:
                     # 현재 스레드에서만, 안전한 input 리다이렉션 사용
                     with redirector.redirect_for_current_thread():
                         logger.info("Starting Telethon client within redirect context")
@@ -118,12 +121,19 @@ async def telethon_auth_callback(websocket: WebSocket):
                             logger.info("Telethon client started successfully")
                             session_string = client.session.save()
                             logger.debug(f"Session string generated (length: {len(session_string)})")
-                            return session_string
+                            register_response = await register(
+                                TelegramCredentials(
+                                    api_id=api_id,
+                                    api_hash=api_hash,
+                                    session_string=session_string
+                                )
+                            )
+                            return register_response
 
                 result = loop.run_until_complete(start_auth())
                 loop.close()
                 logger.debug("Event loop closed in worker thread")
-                telethon_result.put(("success", result))
+                telethon_result.put(("success", result.model_dump_json()))
 
             except Exception as err:
                 logger.error(f"Telethon worker error: {str(err)}")

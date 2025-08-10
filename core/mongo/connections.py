@@ -5,6 +5,11 @@ from functools import lru_cache
 import pymongo
 from dotenv import load_dotenv
 
+from utils import Logger
+
+
+logger = Logger(__name__)
+
 load_dotenv()
 
 class MongoCollections:
@@ -51,7 +56,7 @@ def mongo_client():
             # 연결 테스트
             _mongo_client.admin.command('ping')
         except Exception as e:
-            print(f"MongoDB 연결 실패: {e}")
+            logger.critical(f"MongoDB 연결 실패: {e}")
             return None
 
     return _mongo_client

@@ -1,16 +1,12 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from telethon.tl.types import User as TelethonUser, Channel as TelethonChannel
 
-from core.mongo.types import SenderType
 from handlers import MessageHandler
+from routes.responses import SuccessfulResponse, TeleprobeHTTPException
 from routes.teleprobe.models import channelKeyPath, TeleprobeClientManager
 from teleprobe.base import TeleprobeClient
-from core.mongo.schemas import Message
 from utils import Logger
-from routes.responses import SuccessfulResponse
-
 
 logger = Logger(__name__)
 
@@ -57,8 +53,6 @@ async def post_messages_from_channel(
             logger.info("채널 내의 모든 메세지를 수집하고 DB에 저장했습니다.")
             return SuccessfulResponse(message=f"채널 내의 모든 메세지를 수집하고 DB에 저장했습니다. "
                                   f"Channel ID: {channel_entity.id}, Channel Type: {type(channel_entity)}")
-    except ConnectionError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="텔레그램 서비스에 연결할 수 없습니다"
-        )
+
+    except Exception as e:
+        TeleprobeHTTPException.from_error(e)

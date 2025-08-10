@@ -7,9 +7,8 @@ from handlers import ChannelHandler, EventHandler
 from routes.teleprobe.models import channelKeyPath, TeleprobeClientManager
 from teleprobe.base import TeleprobeClient
 from core.mongo.schemas import Channel
-from teleprobe.errors import ChannelKeyInvalidError, ChannelNotWatchedError, ChannelAlreadyWatchedError
 from utils import Logger
-from routes.responses import SuccessfulResponse
+from routes.responses import SuccessfulResponse, TeleprobeHTTPException
 
 logger = Logger(__name__)
 
@@ -46,17 +45,8 @@ async def post_channel_info(
             if channel_entity := await client.get_channel(channel_key, ChannelHandler()):
                 channel: Channel = Channel.from_telethon(channel_entity)
                 return channel
-            # 결과가 없는 경우 404 오류
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"채널 정보를 찾을 수 없습니다: {channel_key}"
-                )
-    except ConnectionError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="텔레그램 서비스에 연결할 수 없습니다"
-        )
+    except Exception as e:
+        TeleprobeHTTPException.from_error(e)
 
 
 @router.post("/{channel_key}/monitor", response_model=SuccessfulResponse)
@@ -68,21 +58,8 @@ async def post_channel_monitor(
         async with client:
             await client.watch(channel_key, EventHandler())
             return SuccessfulResponse()
-    except ChannelKeyInvalidError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=e.message
-        )
-    except ChannelAlreadyWatchedError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=e.message
-        )
-    except ConnectionError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="텔레그램 서비스에 연결할 수 없습니다"
-        )
+    except Exception as e:
+        TeleprobeHTTPException.from_error(e)
 
 @router.delete("/{channel_key}/monitor", response_model=SuccessfulResponse)
 async def delete_channel_monitor(
@@ -93,18 +70,5 @@ async def delete_channel_monitor(
         async with client:
             await client.unwatch(channel_key)
             return SuccessfulResponse()
-    except ChannelKeyInvalidError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=e.message
-        )
-    except ChannelNotWatchedError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=e.message
-        )
-    except ConnectionError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="텔레그램 서비스에 연결할 수 없습니다"
-        )
+    except Exception as e:
+        TeleprobeHTTPException.from_error(e)

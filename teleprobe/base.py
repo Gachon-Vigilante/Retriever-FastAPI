@@ -9,7 +9,7 @@ from telethon.tl.types import User, Message
 from .channel import ChannelMethods
 from .connect import ConnectMethods
 from .constants import Logger
-from .errors import ApiIdInvalidError, ApiHashInvalidError, TelegramSessionStringInvalidError
+from .errors import *
 from .message import MessageMethods
 from .models import TelegramCredentials
 
@@ -28,7 +28,7 @@ class TeleprobeClient(
 
     # 클래스 변수: api_id별로 인스턴스를 저장
     _instances: ClassVar[Dict[int, 'TeleprobeClient']] = {}
-    _event_handlers: Dict[int, Callable[[None], Coroutine[Any, Any, None]]] = {}
+    _event_handlers: Dict[int, Callable[[Any], Coroutine[Any, Any, None]]] = {}
     _managing_event_handler: threading.Lock = threading.Lock()
 
     def __new__(
@@ -171,7 +171,7 @@ class TeleprobeClient(
             raise ApiHashInvalidError("API Hash is not provided.")
         if not session_string:
             logger.error("세션 정보에 Session String이 제공되지 않았습니다.")
-            raise TelegramSessionStringInvalidError("Session string is not provided.")
+            raise SessionStringInvalidError("Session string is not provided.")
 
         return cls.create_new(
             api_id=api_id,
@@ -307,9 +307,9 @@ class TeleprobeClient(
         """텔레그램 서버에서 연결 해제"""
         if self._client is not None:
             await self._client.disconnect()
-            logger.info(f"텔레그램 연결 해제 (api_id: {self.api_id})")
+            logger.debug(f"텔레그램 연결 해제 (api_id: {self.api_id})")
 
-    async def ensure_connected(self) -> bool:
+    async def ensure_connected(self):
         """클라이언트가 연결되어 있는지 확인하고, 연결되어 있지 않으면 연결을 시도합니다.
 
         Returns:
@@ -324,10 +324,13 @@ class TeleprobeClient(
             logger.debug("텔레그램 서버에 연결 시도 중...")
             await self.client.connect()
             logger.debug("텔레그램 서버에 성공적으로 연결됨")
-            return True
-        except Exception as e:
-            logger.error(f"텔레그램 서버 연결 중 오류 발생: {e}")
-            return False
+        except ValueError as e:
+            if "Not a valid string" in str(e):
+                err = SessionStringInvalidError("Session string이 올바르지 않습니다.")
+                logger.error(err.message)
+                raise err
+            else:
+                raise e
 
     async def is_authorized(self) -> bool:
         """인증 여부 확인
@@ -472,9 +475,11 @@ class TeleprobeClient(
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """비동기 컨텍스트 매니저 종료"""
-        await self.disconnect()
+        # 이벤트 핸들러가 채널 모니터링 중일 경우 연결 유지
+        if not self._event_handlers:
+            await self.disconnect()
 
-        # 이벤트 루프 정리 
+        # 이벤트 루프 정리
         if hasattr(self, 'loop') and self.loop is not None and not self.loop.is_closed():
             try:
                 # 보류 중인 작업 취소

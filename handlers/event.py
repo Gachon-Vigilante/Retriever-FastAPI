@@ -1,5 +1,9 @@
 from core.mongo.message import Message
 
+from utils import Logger
+
+
+logger = Logger(__name__)
 
 class EventHandler:
     """
@@ -29,6 +33,7 @@ class EventHandler:
             No exceptions are raised explicitly in this method.
         """
         # 이벤트가 채팅방 이벤트이고, 메세지가 있을 때에만
-        if (await telethon_event.get_chat()) and (message := telethon_event.message):
+        if (chat := await telethon_event.get_chat()) and (message := telethon_event.message):
             message: Message = Message.from_telethon(message)
+            logger.debug(f"새로운 메세지가 발생했습니다. Chat|Channel ID: {chat.id}, Message ID: {message.id}")
             message.store()

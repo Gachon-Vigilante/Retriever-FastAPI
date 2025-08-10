@@ -251,7 +251,7 @@ class Message(BaseMongoObject):
     def store(self):
         chat_collection = MongoCollections().chats
         existing_message = chat_collection.find_one({"id": self.id, "chat_id": self.chat_id})
-        if existing_message.pop("_id", None):
+        if existing_message and existing_message.pop("_id", None):
             if self == Message(**existing_message):
                 return
             else:
