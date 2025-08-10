@@ -3,12 +3,12 @@ import secrets
 from datetime import datetime
 from typing import Annotated, Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, APIRouter
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core.constants import TELEPROBE_TOKEN_EXPIRATION
-from core.sqlite import router, TelegramToken, get_db
+from core.sqlite import TelegramToken, get_db
 from teleprobe.base import TeleprobeClient
 from teleprobe.errors import ApiIdInvalidError, ApiHashInvalidError, TelegramSessionStringInvalidError
 from teleprobe.models import TelegramCredentials
@@ -42,6 +42,7 @@ def generate_token(api_id: int, api_hash: str) -> str:
     token_hash = hashlib.sha256(unique_data.encode()).hexdigest()
     return f"tpb_{token_hash[:40]}"  # teleprobe 접두어 + 40자 해시
 
+router = APIRouter(prefix="/register")
 
 @router.post("", response_model=RegisterResponse)
 async def register(

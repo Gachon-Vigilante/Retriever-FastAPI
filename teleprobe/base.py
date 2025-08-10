@@ -8,11 +8,15 @@ from telethon.tl.types import User, Message
 from .channel import ChannelMethods
 from .connect import ConnectMethods
 from .errors import ApiIdInvalidError, ApiHashInvalidError, TelegramSessionStringInvalidError
+from .message import MessageMethods
 from .models import TelegramCredentials
+
+from utils import logger
 
 class TeleprobeClient(
     ConnectMethods,
     ChannelMethods,
+    MessageMethods,
 ):
     """텔레그램 클라이언트 기능을 확장한 TeleprobeClient 클래스
 

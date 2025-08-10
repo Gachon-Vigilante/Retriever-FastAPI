@@ -14,7 +14,7 @@ from telethon.errors import (
 )
 from telethon.sync import types
 from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
-from telethon.tl.types import PeerChannel
+from telethon.tl.types import PeerChannel, Channel as TelethonChannel
 
 from utils import get_logger
 logger = get_logger()
@@ -38,7 +38,7 @@ class TelegramConnectionError(Enum):
 class TelegramConnectionResult:
     """채널 연결 결과"""
     success: bool
-    entity: Optional[typing.Any] = None
+    entity: Optional[TelethonChannel] = None
     error_type: Optional[TelegramConnectionError] = None
     error_message: Optional[str] = None
     wait_time: Optional[int] = None  # FloodWaitError의 경우
@@ -177,6 +177,9 @@ class ConnectMethods:
                 if key_type == ChannelKeyType.CHANNEL_ID:
                     channel_key = PeerChannel(channel_key)
                 entity = await self.client.get_entity(channel_key)
+                if not isinstance(entity, TelethonChannel):
+                    logger.error(f"[Connect] 연결된 객체가 채널이 아닙니다. 타입: `{type(entity)}`")
+                    raise TypeError(f"Connected object is not a channel. type: `{type(entity)}`")
                 logger.info(f"[Connect] 채널에 성공적으로 연결되었습니다. 타입: {key_type.value}")
                 return TelegramConnectionResult(success=True, entity=entity)
 

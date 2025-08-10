@@ -1,9 +1,9 @@
 # TelegramCredentials 모델의 필드를 상속받아 새로운 모델 생성
-from typing import Annotated, Union, Optional
-from pydantic import BeforeValidator
 from datetime import datetime
+from typing import Annotated, Union, Optional
 
-from fastapi import Path, Depends, HTTPException, status, Header
+from fastapi import Path, Depends, HTTPException, status, Body
+from pydantic import BeforeValidator
 from sqlalchemy.orm import Session
 
 from core.sqlite import get_db, TelegramToken
@@ -35,7 +35,7 @@ channelKeyPath = Annotated[
 class TeleprobeClientManager:
     @staticmethod
     def get_client_by_token(
-            token: Annotated[str, Header(description="인증 토큰")],
+            token: Annotated[str, Body(description="인증 토큰")],
             db: Annotated[Session, Depends(get_db)]
     ) -> TeleprobeClient:
         """

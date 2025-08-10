@@ -11,3 +11,5 @@ def get_logger(*args, **kwargs):
         return get_customized_logger()
     else:
         return getLogger(*args, **kwargs)
+
+logger = get_logger()

@@ -16,3 +16,6 @@ python-dateutil
 
 # sqlite db 사용
 sqlalchemy
+
+# MongoDB 사용
+pymongo
