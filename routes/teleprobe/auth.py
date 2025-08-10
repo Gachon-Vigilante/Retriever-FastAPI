@@ -6,7 +6,9 @@ from contextlib import contextmanager
 from fastapi import WebSocket, APIRouter
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-from utils import logger
+from utils import Logger
+
+logger = Logger("TeleprobeAuth")
 
 
 router = APIRouter(prefix="/auth")
@@ -27,38 +29,38 @@ class ThreadSafeInputRedirector:
         # 현재 스레드에 리다이렉터가 활성화되어 있는지 확인
         if not getattr(self.local, 'is_redirected', False):
             # 이 스레드에서는 리다이렉션이 비활성화됨 - 원래 input 사용
-            logger.debug(f"[TelegramAuth] Thread {threading.current_thread().name} using original input")
+            logger.debug(f"Thread {threading.current_thread().name} using original input")
             return self.original_input(prompt_text)
 
         # 현재 스레드에서 리다이렉션 활성화됨
-        logger.debug(f"[TelegramAuth] Thread {threading.current_thread().name} sending prompt: {prompt_text}")
+        logger.debug(f"Thread {threading.current_thread().name} sending prompt: {prompt_text}")
 
         # 비동기 Queue에 프롬프트 추가 (스레드 안전)
         if self.prompt_async_queue:
             self.prompt_async_queue.put_nowait(prompt_text)
         else:
-            logger.error("[TelegramAuth] Async queue not set! Falling back to original input.")
+            logger.error("Async queue not set! Falling back to original input.")
             return self.original_input(prompt_text)
 
         # 응답 대기 (블로킹, 최대 5분)
         try:
             result = self.response_queue.get(timeout=300)
-            logger.debug(f"[TelegramAuth] Got input response: {result[:3]}{'*' * max(0, len(result) - 3)}")
+            logger.debug(f"Got input response: {result[:3]}{'*' * max(0, len(result) - 3)}")
             return result
         except Exception as err:
-            logger.error(f"[TelegramAuth] Exception in custom_input: {err}")
+            logger.error(f"Exception in custom_input: {err}")
             return ""
 
     @contextmanager
     def redirect_for_current_thread(self):
         """현재 스레드에서만 안전한 input 리다이렉션"""
         thread_name = threading.current_thread().name
-        logger.info(f"[TelegramAuth] Activating input redirection for thread: {thread_name}")
+        logger.info(f"Activating input redirection for thread: {thread_name}")
 
         # builtins.input을 한 번만 교체 (전역적으로)
         if builtins.input != self.custom_input:
             builtins.input = self.custom_input
-            logger.debug("[TelegramAuth] Global input function replaced")
+            logger.debug("Global input function replaced")
 
         # 현재 스레드에서만 리다이렉션 활성화
         self.local.is_redirected = True
@@ -66,12 +68,12 @@ class ThreadSafeInputRedirector:
         try:
             yield self
         except Exception as e:
-            logger.error(f"[TelegramAuth] Exception during input redirection in thread {thread_name}: {e}")
+            logger.error(f"Exception during input redirection in thread {thread_name}: {e}")
             raise
         finally:
             # 현재 스레드의 리다이렉션만 비활성화
             self.local.is_redirected = False
-            logger.info(f"[TelegramAuth] Input redirection deactivated for thread: {thread_name}")
+            logger.info(f"Input redirection deactivated for thread: {thread_name}")
 
             # Note: builtins.input은 복구하지 않음 (다른 스레드가 사용 중일 수 있음)
             # 대신 custom_input에서 스레드별로 확인하여 처리
@@ -80,7 +82,7 @@ class ThreadSafeInputRedirector:
 @router.websocket("")
 async def telethon_auth_callback(websocket: WebSocket):
     await websocket.accept()
-    logger.info("[TelegramAuth] WebSocket connection accepted")
+    logger.info("WebSocket connection accepted")
 
     redirector = ThreadSafeInputRedirector()
 
@@ -93,7 +95,7 @@ async def telethon_auth_callback(websocket: WebSocket):
         api_id = init_data["api_id"]
         api_hash = init_data["api_hash"]
 
-        logger.info(f"[TelegramAuth] Starting Telethon auth for API ID: {api_id}")
+        logger.info(f"Starting Telethon auth for API ID: {api_id}")
 
         # Telethon 실행용 스레드
         telethon_result = Queue()
@@ -101,7 +103,7 @@ async def telethon_auth_callback(websocket: WebSocket):
         def telethon_worker():
             try:
                 logger.debug(
-                    f"[TelegramAuth] Creating new event loop in worker thread: {threading.current_thread().name}")
+                    f"Creating new event loop in worker thread: {threading.current_thread().name}")
                 # 새로운 이벤트 루프 생성
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -109,48 +111,48 @@ async def telethon_auth_callback(websocket: WebSocket):
                 async def start_auth():
                     # 현재 스레드에서만, 안전한 input 리다이렉션 사용
                     with redirector.redirect_for_current_thread():
-                        logger.info("[TelegramAuth] Starting Telethon client within redirect context")
+                        logger.info("Starting Telethon client within redirect context")
                         async with TelegramClient(StringSession(), api_id, api_hash) as client:
-                            logger.info("[TelegramAuth] Telethon client created, starting authentication...")
+                            logger.info("Telethon client created, starting authentication...")
                             await client.start()
-                            logger.info("[TelegramAuth] Telethon client started successfully")
+                            logger.info("Telethon client started successfully")
                             session_string = client.session.save()
-                            logger.debug(f"[TelegramAuth] Session string generated (length: {len(session_string)})")
+                            logger.debug(f"Session string generated (length: {len(session_string)})")
                             return session_string
 
                 result = loop.run_until_complete(start_auth())
                 loop.close()
-                logger.debug("[TelegramAuth] Event loop closed in worker thread")
+                logger.debug("Event loop closed in worker thread")
                 telethon_result.put(("success", result))
 
             except Exception as err:
-                logger.error(f"[TelegramAuth] Telethon worker error: {str(err)}")
+                logger.error(f"Telethon worker error: {str(err)}")
                 telethon_result.put(("error", str(err)))
 
         # Telethon 스레드 시작
-        logger.debug("[TelegramAuth] Starting Telethon worker thread")
+        logger.debug("Starting Telethon worker thread")
         telethon_thread = threading.Thread(target=telethon_worker, daemon=True, name="TelethonWorker")
         telethon_thread.start()
 
         async def handle_websocket_messages():
             """WebSocket 메시지만 처리하는 전용 태스크"""
-            logger.debug("[TelegramAuth] Starting WebSocket message handler")
+            logger.debug("Starting WebSocket message handler")
             while telethon_thread.is_alive():
                 try:
                     response = await websocket.receive_json()
                     if "input" in response:
                         user_input = response.get("input", "")
                         logger.info(
-                            f"[TelegramAuth] Received input from client: {user_input[:3]}{'*' * max(0, len(user_input) - 3)}")
+                            f"Received input from client: {user_input[:3]}{'*' * max(0, len(user_input) - 3)}")
                         redirector.response_queue.put(user_input)
-                        logger.debug("[TelegramAuth] User input forwarded to Telethon thread")
+                        logger.debug("User input forwarded to Telethon thread")
                 except Exception as e:
-                    logger.error(f"[TelegramAuth] WebSocket receive error: {e}")
+                    logger.error(f"WebSocket receive error: {e}")
                     break
 
         async def handle_prompts():
             """프롬프트만 처리하는 전용 태스크 - 완전한 이벤트 기반"""
-            logger.debug("[TelegramAuth] Starting prompt handler")
+            logger.debug("Starting prompt handler")
             while telethon_thread.is_alive():
                 try:
                     # 완전한 이벤트 기반 - 프롬프트가 올 때까지 대기 (CPU 사용 없음)
@@ -159,7 +161,7 @@ async def telethon_auth_callback(websocket: WebSocket):
                         timeout=1.0  # 1초마다 스레드 상태만 확인
                     )
 
-                    logger.info(f"[TelegramAuth] Sending prompt to client: {prompt}")
+                    logger.info(f"Sending prompt to client: {prompt}")
                     await websocket.send_json({
                         "type": "input_request",
                         "prompt": prompt
@@ -169,21 +171,21 @@ async def telethon_auth_callback(websocket: WebSocket):
                     # 타임아웃 - 스레드 상태 재확인을 위해 계속 (프롬프트 확인 안함)
                     continue
                 except Exception as e:
-                    logger.error(f"[TelegramAuth] Prompt handling error: {e}")
+                    logger.error(f"Prompt handling error: {e}")
                     break
 
         # 두 태스크를 동시 실행
-        logger.debug("[TelegramAuth] Starting event-based message processing")
+        logger.debug("Starting event-based message processing")
         websocket_task = asyncio.create_task(handle_websocket_messages())
         prompt_task = asyncio.create_task(handle_prompts())
 
         try:
             # Telethon 스레드 완료까지 대기 (비동기적으로)
-            logger.debug("[TelegramAuth] Waiting for Telethon thread to complete")
+            logger.debug("Waiting for Telethon thread to complete")
             await asyncio.to_thread(lambda: telethon_thread.join(timeout=600))  # 10분 타임아웃
         finally:
             # 태스크 정리
-            logger.debug("[TelegramAuth] Cleaning up async tasks")
+            logger.debug("Cleaning up async tasks")
             websocket_task.cancel()
             prompt_task.cancel()
 
@@ -194,30 +196,30 @@ async def telethon_auth_callback(websocket: WebSocket):
                 pass
 
         if telethon_thread.is_alive():
-            logger.warning("[TelegramAuth] Telethon thread did not complete within timeout")
+            logger.warning("Telethon thread did not complete within timeout")
 
         # 결과 확인
         try:
             result_type, result_value = telethon_result.get(timeout=1)
             if result_type == "success":
-                logger.info("[TelegramAuth] Authentication successful")
+                logger.info("Authentication successful")
                 await websocket.send_json({
                     "type": "success",
                     "session_string": result_value
                 })
             else:
-                logger.error(f"[TelegramAuth] Authentication failed with error: {result_value}")
+                logger.error(f"Authentication failed with error: {result_value}")
                 raise Exception(result_value)
 
         except Empty:
-            logger.error("[TelegramAuth] Telethon authentication timed out")
+            logger.error("Telethon authentication timed out")
             raise Exception("Telethon authentication timed out")
 
     except Exception as e:
-        logger.error(f"[TelegramAuth] Authentication failed: {str(e)}")
+        logger.error(f"Authentication failed: {str(e)}")
         await websocket.send_json({
             "type": "error",
             "message": str(e)
         })
     finally:
-        logger.info("[TelegramAuth] WebSocket connection cleanup completed")
+        logger.info("WebSocket connection cleanup completed")

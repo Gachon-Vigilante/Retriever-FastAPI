@@ -25,8 +25,8 @@ class Channel(BaseModel):
     # === 기본 식별 정보 ===
     id: int = Field(
         title="채널 ID",
-        description="텔레그램 채널의 고유 식별자 (음수)",
-        examples=[-1001234567890],
+        description="텔레그램 채널의 고유 식별자",
+        examples=[1234567890],
         serialization_alias="_id"
     )
 

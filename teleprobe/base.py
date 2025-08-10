@@ -10,7 +10,10 @@ from .connect import ConnectMethods
 from .errors import ApiIdInvalidError, ApiHashInvalidError, TelegramSessionStringInvalidError
 from .message import MessageMethods
 from .models import TelegramCredentials
-from .constants import logger
+from .constants import Logger
+
+
+logger = Logger("TeleprobeClient")
 
 class TeleprobeClient(
     ConnectMethods,
@@ -49,7 +52,7 @@ class TeleprobeClient(
         # 이미 존재하는 인스턴스가 있으면 반환
         if api_id in cls._instances:
             existing_instance = cls._instances[api_id]
-            logger.debug(f"[Client] 기존 TeleprobeClient 인스턴스 반환 (api_id: {api_id})")
+            logger.debug(f"기존 TeleprobeClient 인스턴스 반환 (api_id: {api_id})")
             existing_instance.update_credentials(
                 api_hash=api_hash,
                 phone=phone,
@@ -62,7 +65,7 @@ class TeleprobeClient(
             raise ValueError(f"새로운 TeleprobeClient 생성시 api_hash는 필수입니다. (api_id: {api_id})")
 
         # 새 인스턴스 생성
-        logger.debug(f"[Client] 새로운 TeleprobeClient 인스턴스 생성 (api_id: {api_id})")
+        logger.debug(f"새로운 TeleprobeClient 인스턴스 생성 (api_id: {api_id})")
         instance = super().__new__(cls)
         cls._instances[api_id] = instance
         return instance
@@ -81,7 +84,7 @@ class TeleprobeClient(
         """
         # 이미 초기화된 인스턴스인지 확인
         if hasattr(self, '_initialized'):
-            logger.debug(f"[Client] 이미 초기화된 인스턴스 (api_id: {api_id})")
+            logger.debug(f"이미 초기화된 인스턴스 (api_id: {api_id})")
             return
 
         super().__init__()
@@ -97,12 +100,12 @@ class TeleprobeClient(
         try:
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
-            logger.debug(f"[Client] 인스턴스 전용 이벤트 루프 생성 완료 (api_id: {api_id})")
+            logger.debug(f"인스턴스 전용 이벤트 루프 생성 완료 (api_id: {api_id})")
         except Exception as e:
-            logger.warning(f"[Client] 이벤트 루프 생성 중 오류: {e}")
+            logger.warning(f"이벤트 루프 생성 중 오류: {e}")
             self.loop = None
 
-        logger.info(f"[Client] TeleprobeClient 초기화 완료 (api_id: {api_id})")
+        logger.info(f"TeleprobeClient 초기화 완료 (api_id: {api_id})")
 
     @classmethod
     def create_new(
@@ -136,10 +139,10 @@ class TeleprobeClient(
                 try:
                     old_instance.run_until_complete(old_instance.disconnect())
                 except Exception as e:
-                    logger.warning(f"[ClientCreate] 기존 인스턴스 정리 중 오류: {e}")
+                    logger.warning(f"기존 인스턴스 정리 중 오류: {e}")
 
             del cls._instances[api_id]
-            logger.info(f"[ClientCreate] 기존 인스턴스 제거 후 새 인스턴스 생성 (api_id: {api_id})")
+            logger.info(f"기존 인스턴스 제거 후 새 인스턴스 생성 (api_id: {api_id})")
 
         # 새 인스턴스 생성
         return cls(
@@ -159,13 +162,13 @@ class TeleprobeClient(
         phone: Optional[str] = None,
     ) -> 'TeleprobeClient':
         if not api_id:
-            logger.error("[ClientRegister] 세션 정보에 API ID가 제공되지 않았습니다.")
+            logger.error("세션 정보에 API ID가 제공되지 않았습니다.")
             raise ApiIdInvalidError("API ID is not provided.")
         if not api_hash:
-            logger.error("[ClientRegister] 세션 정보에 API Hash가 제공되지 않았습니다.")
+            logger.error("세션 정보에 API Hash가 제공되지 않았습니다.")
             raise ApiHashInvalidError("API Hash is not provided.")
         if not session_string:
-            logger.error("[ClientRegister] 세션 정보에 Session String이 제공되지 않았습니다.")
+            logger.error("세션 정보에 Session String이 제공되지 않았습니다.")
             raise TelegramSessionStringInvalidError("Session string is not provided.")
 
         return cls.create_new(
@@ -227,10 +230,10 @@ class TeleprobeClient(
                 if hasattr(instance, '_client') and instance._client:
                     instance.run_until_complete(instance.disconnect())
             except Exception as e:
-                logger.warning(f"[Client] 인스턴스 정리 중 오류 (api_id: {api_id}): {e}")
+                logger.warning(f"인스턴스 정리 중 오류 (api_id: {api_id}): {e}")
 
         cls._instances.clear()
-        logger.info("[Client] 모든 TeleprobeClient 인스턴스 제거 완료")
+        logger.info("모든 TeleprobeClient 인스턴스 제거 완료")
 
     def update_credentials(
             self,
@@ -281,7 +284,7 @@ class TeleprobeClient(
                 session = self.session
 
             self._client = TelegramClient(session, self.api_id, self.api_hash)
-            logger.debug(f"[Client]TelegramClient 생성 완료 (api_id: {self.api_id})")
+            logger.debug(f"TelegramClient 생성 완료 (api_id: {self.api_id})")
 
         return self._client
 
@@ -293,17 +296,17 @@ class TeleprobeClient(
         """
         try:
             await self.client.connect()
-            logger.info(f"[Client] 텔레그램 연결 성공 (api_id: {self.api_id})")
+            logger.info(f"텔레그램 연결 성공 (api_id: {self.api_id})")
             return True
         except Exception as e:
-            logger.error(f"[Client] Connection error (api_id: {self.api_id}): {e}")
+            logger.error(f"Connection error (api_id: {self.api_id}): {e}")
             return False
 
     async def disconnect(self):
         """텔레그램 서버에서 연결 해제"""
         if self._client is not None:
             await self._client.disconnect()
-            logger.info(f"[Client] 텔레그램 연결 해제 (api_id: {self.api_id})")
+            logger.info(f"텔레그램 연결 해제 (api_id: {self.api_id})")
 
     async def ensure_connected(self) -> bool:
         """클라이언트가 연결되어 있는지 확인하고, 연결되어 있지 않으면 연결을 시도합니다.
@@ -317,12 +320,12 @@ class TeleprobeClient(
                 return True
 
             # 연결 시도
-            logger.debug("[Connect] 텔레그램 서버에 연결 시도 중...")
+            logger.debug("텔레그램 서버에 연결 시도 중...")
             await self.client.connect()
-            logger.debug("[Connect] 텔레그램 서버에 성공적으로 연결됨")
+            logger.debug("텔레그램 서버에 성공적으로 연결됨")
             return True
         except Exception as e:
-            logger.error(f"[Connect] 텔레그램 서버 연결 중 오류 발생: {e}")
+            logger.error(f"텔레그램 서버 연결 중 오류 발생: {e}")
             return False
 
     async def is_authorized(self) -> bool:
@@ -453,9 +456,9 @@ class TeleprobeClient(
             try:
                 self.loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(self.loop)
-                logger.debug(f"[Client] 새 이벤트 루프 생성 (api_id: {self.api_id})")
+                logger.debug(f"새 이벤트 루프 생성 (api_id: {self.api_id})")
             except Exception as e:
-                logger.error(f"[Client] 이벤트 루프 생성 오류: {e}")
+                logger.error(f"이벤트 루프 생성 오류: {e}")
                 # 마지막 수단으로 글로벌 이벤트 루프 시도
                 self.loop = asyncio.get_event_loop_policy().get_event_loop()
 
@@ -479,13 +482,13 @@ class TeleprobeClient(
 
                 # 취소된 작업이 완료될 때까지 실행
                 if self.loop.is_running():
-                    logger.debug(f"[Client] 이벤트 루프가 실행 중입니다. 정상적으로 종료될 때까지 대기합니다.")
+                    logger.debug(f"이벤트 루프가 실행 중입니다. 정상적으로 종료될 때까지 대기합니다.")
                 else:
                     self.loop.run_until_complete(asyncio.gather(*asyncio.all_tasks(self.loop), return_exceptions=True))
                     self.loop.close()
-                    logger.debug(f"[Client] 이벤트 루프를 닫았습니다.")
+                    logger.debug(f"이벤트 루프를 닫았습니다.")
             except Exception as e:
-                logger.warning(f"[Client] 이벤트 루프 정리 중 오류: {e}")
+                logger.warning(f"이벤트 루프 정리 중 오류: {e}")
 
     def __repr__(self):
         return f"TeleprobeClient(api_id={self.api_id}, phone={self.phone})"

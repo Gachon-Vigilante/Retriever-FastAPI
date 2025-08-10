@@ -2,10 +2,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from handlers import ChannelHandler
 from routes.teleprobe.models import channelKeyPath, TeleprobeClientManager
 from teleprobe.base import TeleprobeClient
 from core.mongo.schemas import Channel
-from utils import logger
+from utils import Logger
+
+logger = Logger("RoutesTelegramChannels")
 
 router = APIRouter(prefix="/channel")
 
@@ -36,12 +39,9 @@ async def post_channel_info(
     """
     try:
         # 채널 정보 조회 (비동기 방식)
-        logger.info(f"[Channel] 채널 정보 조회 요청: {channel_key}")
-        if channel_entity := await client.get_channel(channel_key):
-            # datetime을 ISO 형식 문자열로 변환하여 직렬화
-            logger.info(f"[Channel] 채널 정보 조회 요청: {channel_key}")
+        logger.debug(f"채널 정보 조회 요청: {channel_key}")
+        if channel_entity := await client.get_channel(channel_key, ChannelHandler()):
             channel: Channel = Channel.from_telethon(channel_entity)
-            channel.store()
             return channel
         # 결과가 없는 경우 404 오류
         else:
@@ -59,10 +59,4 @@ async def post_channel_info(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="텔레그램 서비스에 연결할 수 없습니다"
-        )
-    except Exception as e:
-        logger.error(f"[Channel] 예상하지 못한 오류 발생: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"서버 내부 오류가 발생했습니다: {e}"
         )

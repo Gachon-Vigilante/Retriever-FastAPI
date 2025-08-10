@@ -1,8 +1,9 @@
-from typing import TYPE_CHECKING, Union, AsyncGenerator
+from typing import TYPE_CHECKING, Union, Callable, Coroutine
 
 from telethon.tl.types import (
     Channel as TelethonChannel,
     Chat as TelethonChat,
+    Message,
 )
 
 if TYPE_CHECKING:
@@ -19,15 +20,27 @@ class MessageMethods:
     async def iter_messages(
             self: 'TeleprobeClient',
             entity: Union[TelethonChannel, TelethonChat],
+            handler: Callable[[Message], Coroutine] = None,
     ):
-        """채널 내의 채팅들을 비동기적으로 가져옵니다.
+        """
+        Asynchronously iterates over messages for a specified entity.
+
+        This function retrieves all available messages for a given entity
+        such as a channel or chat. An optional async handler function can be
+        provided to process each message during iteration.
 
         Args:
-            entity: telethon entity(Channel, Chat) 객체
+            self: The current instance of the TeleprobeClient.
+            entity: The target entity for which messages will be retrieved
+                (e.g., TelethonChannel or TelethonChat).
+            handler: An optional async callable that takes a single Message object
+                as a parameter and performs processing.
 
-        Returns:
-            Channel 객체 또는 연결 실패시 None
+        Yields:
+            Message: A message object retrieved from the specified entity.
         """
         async for message in self.client.iter_messages(entity):
+            if handler and isinstance(handler, Callable) and isinstance(message, Message):
+                await handler(message)
             yield message
 

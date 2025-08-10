@@ -15,9 +15,7 @@ from telethon.errors import (
 from telethon.sync import types
 from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
 from telethon.tl.types import PeerChannel, Channel as TelethonChannel
-from .constants import logger
-
-
+from .constants import Logger
 if typing.TYPE_CHECKING:
     from teleprobe.base import TeleprobeClient
 
@@ -26,6 +24,7 @@ __all__ = [
     'TeleprobeClient',
     'ConnectMethods',
 ]
+logger = Logger("TeleprobeChannels")
 
 
 class TelegramConnectionError(Enum):
@@ -106,7 +105,7 @@ class ConnectMethods:
                 )
         
         if isinstance(e, FloodWaitError):
-            logger.warning(f"[Connect] 요청이 너무 많아 제한되었습니다. {e.seconds}초 후에 다시 시도하세요.")
+            logger.warning(f"요청이 너무 많아 제한되었습니다. {e.seconds}초 후에 다시 시도하세요.")
             return TelegramConnectionResult(
                 success=False,
                 error_type=TelegramConnectionError.FLOOD_WAIT,
@@ -115,7 +114,7 @@ class ConnectMethods:
             )
         
         # 예상하지 못한 오류
-        logger.error(f"[Connect] 예상하지 못한 오류: {e}")
+        logger.error(f"예상하지 못한 오류: {e}")
         return TelegramConnectionResult(
             success=False,
             error_type=TelegramConnectionError.UNKNOWN_ERROR,
@@ -142,16 +141,16 @@ class ConnectMethods:
             if isinstance(invite_info, types.ChatInvite):
                 logger.debug("채널에 참여 중...")
                 entity = await self.client(ImportChatInviteRequest(invite_hash))
-                logger.info("[Connect] 초대 링크를 통해 채널에 성공적으로 참여했습니다.")
+                logger.info("초대 링크를 통해 채널에 성공적으로 참여했습니다.")
                 return TelegramConnectionResult(success=True, entity=entity)
                 
             elif isinstance(invite_info, types.ChatInviteAlready):
-                logger.info("[Connect] 이미 채널에 참여 중입니다. 엔티티를 가져옵니다.")
+                logger.info("이미 채널에 참여 중입니다. 엔티티를 가져옵니다.")
                 entity = await self.client.get_entity(invite_info.chat)
                 return TelegramConnectionResult(success=True, entity=entity)
             
             else:
-                logger.warning(f"[Connect] 알 수 없는 초대 정보 타입: {type(invite_info)}")
+                logger.warning(f"알 수 없는 초대 정보 타입: {type(invite_info)}")
                 return TelegramConnectionResult(
                     success=False,
                     error_type=TelegramConnectionError.UNKNOWN_ERROR,
@@ -173,7 +172,7 @@ class ConnectMethods:
                 )
                 
             key_type = self._identify_channel_key_type(channel_key)
-            logger.debug(f"[Connect] 채널 연결 중... 키: {channel_key}, 타입: {key_type.value}")
+            logger.debug(f"채널 연결 중... 키: {channel_key}, 타입: {key_type.value}")
 
             if key_type == ChannelKeyType.INVITE_LINK:
                 return await self.accept_invitation(channel_key)
@@ -183,9 +182,9 @@ class ConnectMethods:
                     channel_key = PeerChannel(channel_key)
                 entity = await self.client.get_entity(channel_key)
                 if not isinstance(entity, TelethonChannel):
-                    logger.error(f"[Connect] 연결된 객체가 채널이 아닙니다. 타입: `{type(entity)}`")
+                    logger.error(f"연결된 객체가 채널이 아닙니다. 타입: `{type(entity)}`")
                     raise TypeError(f"Connected object is not a channel. type: `{type(entity)}`")
-                logger.info(f"[Connect] 채널에 성공적으로 연결되었습니다. 타입: {key_type.value}")
+                logger.info(f"채널에 성공적으로 연결되었습니다. 타입: {key_type.value}")
                 return TelegramConnectionResult(success=True, entity=entity)
 
         except Exception as e:
@@ -208,12 +207,12 @@ class ConnectMethods:
             
             if result.error_type == TelegramConnectionError.FLOOD_WAIT and result.wait_time:
                 # FloodWaitError의 경우 지정된 시간만큼 대기
-                logger.info(f"[Connect] FloodWait으로 인해 {result.wait_time}초 대기 중...")
+                logger.info(f"FloodWait으로 인해 {result.wait_time}초 대기 중...")
                 await asyncio.sleep(result.wait_time)
                 continue
             
             if attempt < max_retries - 1:
-                logger.info(f"[Connect] 연결 실패, {retry_delay}초 후 재시도... (시도 {attempt + 1}/{max_retries})")
+                logger.info(f"연결 실패, {retry_delay}초 후 재시도... (시도 {attempt + 1}/{max_retries})")
                 await asyncio.sleep(retry_delay)
                 retry_delay *= 2  # 지수 백오프
 

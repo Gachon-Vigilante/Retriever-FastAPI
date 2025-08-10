@@ -12,7 +12,9 @@ from core.sqlite import TelegramToken, get_db
 from teleprobe.base import TeleprobeClient
 from teleprobe.errors import ApiIdInvalidError, ApiHashInvalidError, TelegramSessionStringInvalidError
 from teleprobe.models import TelegramCredentials
-from utils import logger
+from utils import Logger
+
+logger = Logger("TeleprobeRegister")
 
 
 # 응답 모델
@@ -71,7 +73,7 @@ async def register(
         )
 
         # 클라이언트 등록 (연결 테스트)
-        logger.info(f"[Register] TeleprobeClient 등록 시작: api_id={client.api_id}")
+        logger.info(f"TeleprobeClient 등록 시작: api_id={client.api_id}")
 
         # 클라이언트 연결 확인
         if not await client.ensure_connected():
@@ -88,7 +90,7 @@ async def register(
         ).first()
 
         if existing_token:
-            logger.info(f"[Register] 기존 활성 토큰 발견: {existing_token.token[:10]}...")
+            logger.info(f"기존 활성 토큰 발견: {existing_token.token[:10]}...")
             return RegisterResponse(
                 token=existing_token.token,
                 expires_at=existing_token.expires_at,
@@ -113,7 +115,7 @@ async def register(
         db.commit()
         db.refresh(db_token)
 
-        logger.info(f"[Register] 새 토큰 생성 완료: {token[:10]}... (api_id: {client.api_id})")
+        logger.info(f"새 토큰 생성 완료: {token[:10]}... (api_id: {client.api_id})")
 
         return RegisterResponse(
             token=token,
@@ -128,7 +130,7 @@ async def register(
             detail=e.message
         )
     except Exception as e:
-        logger.error(f"[Register] 등록 중 오류 발생: {str(e)}")
+        logger.error(f"등록 중 오류 발생: {str(e)}")
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

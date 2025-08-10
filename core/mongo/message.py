@@ -6,8 +6,10 @@ from telethon.tl.types import Message as TelethonMessage
 
 from .types import SenderType
 from .connections import MongoCollections
-from utils import logger
+from utils import Logger
 
+
+logger = Logger("MongoMessage")
 
 class Message(BaseModel):
     """텔레그램 메시지 모델 (Telethon Message 기반)"""
@@ -263,6 +265,6 @@ class Message(BaseModel):
             if self == Message(**existing_message):
                 return
             else:
-                logger.debug(f"[MongoMessage] 기존에 저장된 메세지 중 수정된 메세지가 발견되었습니다. "
+                logger.debug(f"기존에 저장된 메세지 중 수정된 메세지가 발견되었습니다. "
                              f"Message ID: {self.id}, Chat|Channel ID: {self.chat_id}")
         chat_collection.insert_one(self.model_dump())

@@ -4,15 +4,18 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from telethon.tl.types import User as TelethonUser, Channel as TelethonChannel
 
 from core.mongo.types import SenderType
+from handlers import FakeMessageHandler
 from routes.teleprobe.models import channelKeyPath, TeleprobeClientManager
 from teleprobe.base import TeleprobeClient
 from core.mongo.schemas import Message
-from utils import logger
+from utils import Logger
 from ..responses import SuccessfulResponse
+
+
+logger = Logger("RoutesTelegramMessages")
 
 router = APIRouter(prefix="/channel")
 
-LOGGER_HEADER = "[ChannelMessages] "
 @router.post("/{channel_key}/messages")
 async def post_messages_from_channel(
         client: Annotated[TeleprobeClient, Depends(TeleprobeClientManager.get_client_by_token)],
@@ -40,7 +43,7 @@ async def post_messages_from_channel(
     """
     try:
         # 채널 정보 조회 (비동기 방식)
-        logger.info(LOGGER_HEADER+f"채널 정보 조회 요청: {channel_key}")
+        logger.info(f"채널 정보 조회 요청: {channel_key}")
         channel_entity = await client.get_channel(channel_key)
 
         if not channel_entity:
@@ -49,10 +52,10 @@ async def post_messages_from_channel(
                 detail=f"채널 정보를 찾을 수 없습니다: {channel_key}"
             )
 
-        async for telethon_message in client.iter_messages(channel_entity):
+        async for telethon_message in client.iter_messages(channel_entity, FakeMessageHandler()):
             sender = await telethon_message.get_sender()
             if not sender:
-                logger.error(LOGGER_HEADER+f"메세지 송신자를 받아올 수 없습니다.")
+                logger.error(f"메세지 송신자를 받아올 수 없습니다.")
                 sender_id = sender_type = None
             else:
                 sender_id = sender.id
@@ -61,7 +64,7 @@ async def post_messages_from_channel(
                 elif isinstance(sender, TelethonChannel):
                     sender_type = SenderType.CHANNEL
                 else:
-                    logger.warning(LOGGER_HEADER+f"메세지 송신자가 알려지지 않은 타입입니다. "
+                    logger.warning(f"메세지 송신자가 알려지지 않은 타입입니다. "
                                    f"Expected `User` or `Channel`, got `{type(sender)}`")
                     sender_type = None
             message: Message = Message.from_telethon(
@@ -71,7 +74,7 @@ async def post_messages_from_channel(
                 sender_type=sender_type
             )
             message.store()
-        logger.info(LOGGER_HEADER+"채널 내의 모든 메세지를 수집하고 DB에 저장했습니다.")
+        logger.info("채널 내의 모든 메세지를 수집하고 DB에 저장했습니다.")
         return SuccessfulResponse(message=f"채널 내의 모든 메세지를 수집하고 DB에 저장했습니다. "
                                   f"Channel ID: {channel_entity.id}, Channel Type: {type(channel_entity)}")
 
@@ -84,10 +87,4 @@ async def post_messages_from_channel(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="텔레그램 서비스에 연결할 수 없습니다"
-        )
-    except Exception as e:
-        logger.error(f"[ChannelMessages] 예상하지 못한 오류 발생: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="서버 내부 오류가 발생했습니다"
         )
