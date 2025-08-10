@@ -1,7 +1,6 @@
 from telethon.tl.types import Channel as TelethonChannel
 
 from core.mongo.channel import Channel
-from utils import Logger
 
 
 class ChannelHandler:
@@ -12,7 +11,6 @@ class ChannelHandler:
     Channel object, and perform storage operations. It also allows for logging of messages
     related to these operations.
     """
-    logger = Logger(__name__)
 
     def __init__(self):
         pass

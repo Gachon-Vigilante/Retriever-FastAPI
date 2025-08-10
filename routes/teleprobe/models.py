@@ -66,7 +66,7 @@ class TeleprobeClientManager:
                 )
 
             # 토큰에서 인증 정보 추출하여 TeleprobeClient 생성
-            client = TeleprobeClient.create_new(
+            client = TeleprobeClient(
                 api_id=db_token.api_id,
                 api_hash=db_token.api_hash,
                 session_string=db_token.session_string,

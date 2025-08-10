@@ -1,5 +1,6 @@
 import asyncio
-from typing import Optional, Union, Any, List, Dict, ClassVar
+import threading
+from typing import Optional, Union, Any, List, Dict, ClassVar, Callable, Coroutine
 
 from telethon.sessions import Session, StringSession
 from telethon.sync import TelegramClient
@@ -7,11 +8,10 @@ from telethon.tl.types import User, Message
 
 from .channel import ChannelMethods
 from .connect import ConnectMethods
+from .constants import Logger
 from .errors import ApiIdInvalidError, ApiHashInvalidError, TelegramSessionStringInvalidError
 from .message import MessageMethods
 from .models import TelegramCredentials
-from .constants import Logger
-
 
 logger = Logger(__name__)
 
@@ -28,6 +28,8 @@ class TeleprobeClient(
 
     # 클래스 변수: api_id별로 인스턴스를 저장
     _instances: ClassVar[Dict[int, 'TeleprobeClient']] = {}
+    _event_handlers: Dict[int, Callable[[None], Coroutine[Any, Any, None]]] = {}
+    _managing_event_handler: threading.Lock = threading.Lock()
 
     def __new__(
             cls,
@@ -284,7 +286,6 @@ class TeleprobeClient(
                 session = self.session
 
             self._client = TelegramClient(session, self.api_id, self.api_hash)
-            logger.debug(f"TelegramClient 생성 완료 (api_id: {self.api_id})")
 
         return self._client
 
@@ -316,7 +317,7 @@ class TeleprobeClient(
         """
         try:
             # 이미 연결되어 있는지 확인
-            if hasattr(self.client, '_sender') and self.client._sender and self.client._sender.is_connected():
+            if self.client and self.client.is_connected():
                 return True
 
             # 연결 시도
@@ -464,29 +465,30 @@ class TeleprobeClient(
 
         return self.loop.run_until_complete(coro)
 
-    def __enter__(self):
-        """컨텍스트 매니저 진입"""
-        self.run_until_complete(self.connect())
+    async def __aenter__(self):
+        """비동기 컨텍스트 매니저 진입"""
+        await self.connect()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """컨텍스트 매니저 종료"""
-        self.run_until_complete(self.disconnect())
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """비동기 컨텍스트 매니저 종료"""
+        await self.disconnect()
 
-        # 이벤트 루프 정리
+        # 이벤트 루프 정리 
         if hasattr(self, 'loop') and self.loop is not None and not self.loop.is_closed():
             try:
                 # 보류 중인 작업 취소
-                for task in asyncio.all_tasks(self.loop):
+                tasks = [t for t in asyncio.all_tasks(self.loop) if t is not asyncio.current_task(self.loop)]
+                for task in tasks:
                     task.cancel()
 
-                # 취소된 작업이 완료될 때까지 실행
-                if self.loop.is_running():
-                    logger.debug(f"이벤트 루프가 실행 중입니다. 정상적으로 종료될 때까지 대기합니다.")
-                else:
-                    self.loop.run_until_complete(asyncio.gather(*asyncio.all_tasks(self.loop), return_exceptions=True))
-                    self.loop.close()
-                    logger.debug(f"이벤트 루프를 닫았습니다.")
+                if tasks:
+                    await asyncio.gather(*tasks, return_exceptions=True)
+
+                self.loop.stop()
+                self.loop.close()
+                logger.debug(f"이벤트 루프를 닫았습니다.")
+
             except Exception as e:
                 logger.warning(f"이벤트 루프 정리 중 오류: {e}")
 

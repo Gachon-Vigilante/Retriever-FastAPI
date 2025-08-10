@@ -81,6 +81,7 @@ async def register(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="텔레그램 클라이언트 연결에 실패했습니다. API 자격 증명을 확인해주세요."
             )
+        await client.disconnect()
 
         # 기존 토큰 확인 (같은 api_id로 이미 등록된 경우)
         existing_token: Optional[TelegramToken] = db.query(TelegramToken).filter(

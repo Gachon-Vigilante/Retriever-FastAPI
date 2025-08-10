@@ -9,7 +9,7 @@ from routes.teleprobe.models import channelKeyPath, TeleprobeClientManager
 from teleprobe.base import TeleprobeClient
 from core.mongo.schemas import Message
 from utils import Logger
-from ..responses import SuccessfulResponse
+from routes.responses import SuccessfulResponse
 
 
 logger = Logger(__name__)
@@ -42,19 +42,20 @@ async def post_messages_from_channel(
         A dictionary containing a success message if all messages are successfully stored.
     """
     try:
-        # 채널 정보 조회 (비동기 방식)
-        logger.info(f"채널 정보 조회 요청: {channel_key}")
-        channel_entity = await client.get_channel(channel_key)
+        async with client:
+            # 채널 정보 조회 (비동기 방식)
+            logger.info(f"채널 정보 조회 요청: {channel_key}")
+            channel_entity = await client.get_channel(channel_key)
 
-        if not channel_entity:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"채널 정보를 찾을 수 없습니다: {channel_key}"
-            )
+            if not channel_entity:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"채널 정보를 찾을 수 없습니다: {channel_key}"
+                )
 
-        client.iter_messages(channel_entity, MessageHandler())
-        logger.info("채널 내의 모든 메세지를 수집하고 DB에 저장했습니다.")
-        return SuccessfulResponse(message=f"채널 내의 모든 메세지를 수집하고 DB에 저장했습니다. "
+            client.iter_messages(channel_entity, MessageHandler())
+            logger.info("채널 내의 모든 메세지를 수집하고 DB에 저장했습니다.")
+            return SuccessfulResponse(message=f"채널 내의 모든 메세지를 수집하고 DB에 저장했습니다. "
                                   f"Channel ID: {channel_entity.id}, Channel Type: {type(channel_entity)}")
     except ConnectionError:
         raise HTTPException(
