@@ -1,0 +1,73 @@
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
+
+from core.mongo.schemas import Channel
+from handlers import ChannelHandler, EventHandler
+from routes.responses import SuccessfulResponse, TeleprobeHTTPException
+from routes.teleprobe.models import channelKeyPath, TeleprobeClientManager
+from teleprobe.base import TeleprobeClient
+from utils import Logger
+
+logger = Logger(__name__)
+
+router = APIRouter(prefix="/channel")
+
+@router.post("/{channel_key}", response_model=Channel)
+async def post_channel_info(
+    client: Annotated[TeleprobeClient, Depends(TeleprobeClientManager.get_client_by_token)],
+    channel_key: channelKeyPath,
+):
+    """
+    Handles a POST request to fetch channel information based on the provided channel key.
+
+    This endpoint retrieves channel information from a Telegram client asynchronously. If the
+    channel information is successfully retrieved, it serializes the channel entity into a response
+    model and stores the information. If the channel key is not found, it returns a 404 error. In
+    case of invalid channel key formats, connection issues, or unexpected server errors, the
+    appropriate HTTP exception is raised.
+
+    Parameters:
+        client: An injected instance of TeleprobeClient required for communication with Telegram.
+        channel_key: The key identifying the channel whose information is to be retrieved.
+
+    Returns:
+        Channel: The channel information deserialized from the retrieved entity.
+
+    Raises:
+        HTTPException: Raised when the channel key is invalid, the channel is not found,
+                       there is a connection issue, or any unexpected internal server error occurs.
+    """
+    try:
+        async with client:
+            # 채널 정보 조회 (비동기 방식)
+            if channel_entity := await client.get_channel(channel_key, ChannelHandler()):
+                channel: Channel = Channel.from_telethon(channel_entity)
+                return channel
+    except Exception as e:
+        TeleprobeHTTPException.from_error(e)
+
+
+@router.post("/{channel_key}/monitor", response_model=SuccessfulResponse)
+async def post_channel_monitor(
+    client: Annotated[TeleprobeClient, Depends(TeleprobeClientManager.get_client_by_token)],
+    channel_key: channelKeyPath,
+):
+    try:
+        async with client:
+            await client.watch(channel_key, EventHandler())
+            return SuccessfulResponse()
+    except Exception as e:
+        TeleprobeHTTPException.from_error(e)
+
+@router.delete("/{channel_key}/monitor", response_model=SuccessfulResponse)
+async def delete_channel_monitor(
+    client: Annotated[TeleprobeClient, Depends(TeleprobeClientManager.get_client_by_token)],
+    channel_key: channelKeyPath,
+):
+    try:
+        async with client:
+            await client.unwatch(channel_key)
+            return SuccessfulResponse()
+    except Exception as e:
+        TeleprobeHTTPException.from_error(e)
