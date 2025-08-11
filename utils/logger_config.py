@@ -422,7 +422,7 @@ class ColorFormatter(BasicFormatter):
 
         Examples:
             # 색상이 적용된 출력 예시:
-            # [2024-01-15 14:30:25.123] INFO     : [mymodule] Hello World (main.py in \src)
+            # [2024-01-15 14:30:25.123] INFO     : [mymodule] Hello World (main.py in /src)
             formatted = formatter.format(record)
 
         Note:
@@ -509,7 +509,7 @@ class AccessLogFileFormatter(FileFormatter):
         formatter = AccessLogFileFormatter()
 
         # 출력 예시:
-        # 2024-01-15 14:30:25.123, INFO, GET /api/users 200, uvicorn.py, \logs
+        # 2024-01-15 14:30:25.123, INFO, GET /api/users 200, uvicorn.py, /logs
 
     Note:
         이 포맷터는 로거 이름(name) 필드를 제외하여
