@@ -10,26 +10,23 @@ This module centrally manages and exports all data models used in MongoDB.
 It provides a single entry point for importing data models from other modules,
 simplifying import statements and clarifying module structure.
 
-Exported Classes:
-    Channel: 텔레그램 채널 정보를 나타내는 데이터 모델
-            Data model representing Telegram channel information
-    Message: 텔레그램 메시지 정보를 나타내는 데이터 모델
-            Data model representing Telegram message information
-
 Examples:
     # 단일 모델 가져오기
-    from core.mongo.schemas import Channel, Message
+    from core.mongo.schemas import Channel, Message, ...
 
     # 모든 모델 가져오기
     from core.mongo import schemas
     channel = schemas.Channel(...)
     message = schemas.Message(...)
+    ...
 """
 
 from .channel import Channel
 from .message import Message
+from .post import Post
 
 __all__ = [
     "Channel",
     "Message",
+    "Post",
 ]

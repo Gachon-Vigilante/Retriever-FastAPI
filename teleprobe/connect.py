@@ -200,12 +200,12 @@ class ConnectMethods:
         if isinstance(channel_key, int):
             return ChannelKeyType.CHANNEL_ID
         elif isinstance(channel_key, str):
-            if channel_key.startswith("https://t.me/+") or channel_key.startswith("+"):
+            if channel_key.startswith("https://t.me/+") or channel_key.startswith("+") or ".me/joinchat" in channel_key:
                 return ChannelKeyType.INVITE_LINK
             else:
                 return ChannelKeyType.USERNAME
         err = ChannelKeyInvalidError(f"지원되지 않는 채널 키 타입: {type(channel_key)}")
-        logger.error(err.message)
+        logger.error(err)
         raise err
 
     @staticmethod
@@ -339,7 +339,7 @@ class ConnectMethods:
 
         else:
             err = UnknownInvitationTypeError(f"알 수 없는 초대 정보 타입: {type(invite_info)}")
-            logger.warning(err.message)
+            logger.warning(err)
             raise err
 
     async def connect_channel(self: 'TeleprobeClient', channel_key: Union[int, str]) -> TelethonChannel:
@@ -360,7 +360,7 @@ class ConnectMethods:
             except ValueError as e:
                 if "No user has" in str(e):
                     err = UsernameNotFoundError(f"@username {channel_key}에 해당하는 채널이 없습니다.")
-                    logger.error(err.message)
+                    logger.error(err)
                     raise err from e
                 else:
                     raise e
@@ -381,7 +381,9 @@ class ConnectMethods:
         import asyncio
 
         if max_retries < 1:
-            raise ValueError("Max retries must be greater than or equal to 1.")
+            logger.warning(f"Invalid max retries(expected greater than or equal to 1, got {max_retries}). "
+                           f"It is set to 1 by default. ")
+            max_retries = 1
 
         channel = None
         for attempt in range(max_retries + 1):
