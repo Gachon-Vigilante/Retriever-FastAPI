@@ -11,10 +11,10 @@ from utils import Logger
 logger = Logger(__name__)
 
 class CrawlerResult(BaseModel):
-    posts: list[Post] = Field(
+    posts: list[str] = Field(
         default_factory=list,
         title="웹 게시글",
-        description="각 검색어에 대해 검색된 온라인 게시글 목록",
+        description="각 검색어에 대해 검색된 온라인 게시글 링크 목록",
     )
     telegram_links: list[str] = Field(
         default_factory=list,
@@ -56,14 +56,20 @@ class Crawler:
             result = CrawlerResult()
             posts = self.search(keyword, limit=self.limit)
             for post in posts:
-                if _is_telegram_link(post.link):
-                    result.telegram_links.append(post.link)
+                link = post.link
+                if _is_telegram_link(link):
+                    result.telegram_links.append(link)
                 else:
-                    result.posts.append(post)
+                    result.posts.append(link)
 
-                content = await self.visit(post.link)
+                content = await self.visit(link)
                 if content:
-                    post.content = content
+                    # Store extracted text content in the Post model
+                    try:
+                        setattr(post, "text", content)
+                    except Exception:
+                        # Fallback for different Post schema imports
+                        post.text = content  # type: ignore
                 if self.handler:
                     await self.handler(post)
             total.results.append(result)
@@ -104,6 +110,9 @@ class Crawler:
 
         logger.warning(f"모든 웹 페이지 방문 시도가 실패했습니다. Tried {self.max_retries} times, Error: {visit_error}")
         return None
+
+
+
 
 def _is_telegram_link(link: str) -> bool:
     return True if re.findall(TELEGRAM_LINK_PATTERN, link) else False

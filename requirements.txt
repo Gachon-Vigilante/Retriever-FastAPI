@@ -16,6 +16,7 @@ python-dateutil
 
 # sqlite db 사용
 sqlalchemy
+aiosqlite
 
 # MongoDB 사용
 pymongo
@@ -25,3 +26,7 @@ requests
 aiohttp
 beautifulsoup4
 lxml # 더 빠르고 최적화된 HTLM 파싱
+
+# Gemini AI
+langchain-google-genai
+google-genai
