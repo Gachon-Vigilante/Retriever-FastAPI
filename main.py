@@ -15,8 +15,9 @@ from fastapi import FastAPI
 
 from utils import Logger
 from routes import root_router
+from celery_app import setup_celery
 
-
+setup_celery()
 logger = Logger(__name__)
 
 

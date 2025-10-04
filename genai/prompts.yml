@@ -32,14 +32,14 @@ analysis:
       without advertising or facilitating drug sales 
       or the content appears to be a news report (e.g., contains terms like "arrested", "report", "crackdown", "police investigation", "journalist", etc.) 
       or describes third-party actions without promoting sales, classify it as `False`."""
-    content:
+    content: >
       For each unique promoting channel detected in the HTML content,
       extract all promotional texts targeting that channel as content.
       Group multiple promotions for the same channel together.
       Do not translate the promotional content;
       return it exactly as it appears in the original input.
       (e.g. if the original input was Korean, return it in Korean.)
-    links:
+    links: >
       For each drug promotion in the HTML content,
       extract any associated Telegram addresses (channel only),
       @usernames, or invitation links mentioned in that specific promotion.
