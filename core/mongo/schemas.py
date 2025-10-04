@@ -23,10 +23,10 @@ Examples:
 
 from .channel import Channel
 from .message import Message
-from .post import Post
+from .post import Post, PostFields
 
 __all__ = [
     "Channel",
     "Message",
-    "Post",
+    "Post", "PostFields",
 ]

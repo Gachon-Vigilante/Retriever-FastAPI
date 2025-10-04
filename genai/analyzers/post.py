@@ -1,185 +1,128 @@
-import asyncio
-import os
 import json
+import os
 import tempfile
-from typing import Sequence, Optional, Dict, Any, List
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
+from typing import Optional, Dict, Any, List
 
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, ForeignKey, Index
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy import select, update, and_, func
-from sqlalchemy.orm import relationship
-
+from bson import ObjectId
 from google import genai
 from google.genai import types
+from google.genai.types import CreateBatchJobConfig, GenerationConfig
 from pydantic import Field
 
+from core.mongo.connections import MongoCollections
 from core.mongo.post import Post, PostAnalysisResult, TelegramPromotion
 from utils import Logger
 from ..models import prompts
 
-Base = declarative_base()
-
 logger = Logger(__name__)
 
-class JobStatus(Enum):
+class JobStatus(StrEnum):
     ACCEPTING_REQUESTS = "accepting_requests"  # 새로 추가
     PENDING = "pending"
     SUBMITTED = "submitted"
-    PROCESSING = "processing"
+    PROCESSED = "processed" # gemini에서는 성공했지만 다운로드 후 반영하지는 않은 상태
     COMPLETED = "completed"
     FAILED = "failed"
 
-
-class AIPostAnalysisResult(PostAnalysisResult):
-    drugs_related: bool = Field(
-        default=False,
-        title="Drugs Detection Result",
-        description=prompts["analysis"]["post"]["drugs_related"],
-    )
-
-
-class AITelegramPromotion(TelegramPromotion):
-    content: str = Field(
-        default="",
-        title="Promotion Content",
-        description=prompts["analysis"]["post"]["content"],
-    )
-    links: list[str] = Field(
-        default_factory=list,
-        title="Promoted Telegram Links",
-        description=prompts["analysis"]["post"]["links"],
-    )
-
-
-class GeminiBatchJobs(Base):
-    """Gemini 배치 작업 테이블"""
-    __tablename__ = 'gemini_batch_jobs'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(255), unique=True, nullable=True)  # Gemini API에서 반환하는 job name
-    status = Column(String(50), nullable=False, default=JobStatus.ACCEPTING_REQUESTS.value)
-    file_size_bytes = Column(Integer, default=0)  # 파일 크기 추적
-    request_count = Column(Integer, default=0)  # 요청 개수 추적
-    result = Column(Text, nullable=True)  # 작업 결과 저장
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
-
-    # 관계 설정
-    requests = relationship("GeminiRequests", back_populates="batch_job", cascade="all, delete-orphan")
-
-
-class GeminiRequests(Base):
-    """개별 Gemini 요청 테이블"""
-    __tablename__ = 'gemini_requests'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    request_key = Column(String(100), unique=True, nullable=False, index=True)
-    batch_job_id = Column(
-        Integer,
-        ForeignKey(
-            column=GeminiBatchJobs.id,
-            ondelete="CASCADE",
-            onupdate="CASCADE",
-        ),
-        nullable=False,
-        index=True
-    )
-
-    # Post 정보
-    post_title = Column(Text, nullable=False)
-    post_text = Column(Text, nullable=False)
-    post_link = Column(Text, nullable=False)
-
-    # 요청 데이터 (JSON 문자열)
-    contents = Column(Text, nullable=False)
-    generation_config = Column(Text, nullable=False)
-    estimated_size_bytes = Column(Integer, default=0)  # 예상 크기
-
-    # 결과 및 상태
-    is_processed = Column(Boolean, default=False, nullable=False)
-    result = Column(Text, nullable=True)
-
-    created_at = Column(DateTime, default=datetime.now)
-
-    # 관계 설정
-    batch_job = relationship("GeminiBatchJobs", back_populates="requests")
-
-    __table_args__ = (
-        Index('idx_gemini_requests_processed', 'is_processed'),
-        Index('idx_gemini_requests_batch_job', 'batch_job_id'),
-        Index('idx_gemini_requests_batch_status', 'batch_job_id', 'is_processed'),
-    )
+class GeminiBatchJobState(StrEnum):
+    PENDING = "JOB_STATE_PENDING"
+    RUNNING = "JOB_STATE_RUNNING"
+    SUCCEEDED = "JOB_STATE_SUCCEEDED"
+    FAILED = "JOB_STATE_FAILED"
+    CANCELLED = "JOB_STATE_CANCELLED"
+    EXPIRED = "JOB_STATE_EXPIRED"
 
 
 class PostAnalyzer:
     # 1GB 크기 제한 상수
     MAX_FILE_SIZE_BYTES = 1024 * 1024 * 1024  # 1GB
 
-    def __init__(self, db_path: str = "teleprobe.db"):
-        self.db_url = f"sqlite+aiosqlite:///{db_path}"
-        self.engine = create_async_engine(self.db_url, echo=False)
-        self.async_session = async_sessionmaker(self.engine, expire_on_commit=False)
-
+    def __init__(self):
+        self.collections = MongoCollections()
         self.template: list = [
             {
                 "parts": [{"text": prompts["analysis"]["post"]["main"]}],
-                "role": "system",
+                "role": "model",
             },
             {
                 "parts": [{"text": "Analyze the following webpage:"}],
                 "role": "user"
             },
         ]
-
         self.client = genai.Client()
+        self.generation_config: dict = {
+            "temperature": 0.1,
+            "response_mime_type": "application/json",
+            "response_json_schema": self._create_gemini_compatible_schema()
+        }
+
+    @staticmethod
+    def _create_gemini_compatible_schema() -> dict:
+        """Gemini API 호환 JSON 스키마 생성"""
+        return {
+            "type": "object",
+            "properties": {
+                "drugs_related": {
+                    "type": "boolean",
+                    "description": "Whether the post is related to drugs promotions or not."
+                },
+                "promotions": {
+                    "type": "array",
+                    "description": "List of detected drug promotions with associated Telegram channel information",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "content": {
+                                "type": "string",
+                                "description": "Drugs promotions content detected in the post."
+                            },
+                            "links": {
+                                "type": "array",
+                                "description": "List of detected telegram links from content.",
+                                "items": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "required": ["content", "links"]
+                    }
+                }
+            },
+            "required": ["drugs_related", "promotions"]
+        }
+
 
     async def __aenter__(self):
-        """데이터베이스 초기화"""
-        async with self.engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-
-        # 초기 accepting_requests Job 생성
+        """MongoDB 초기화: ACCEPTING_REQUESTS Job 보장"""
         await self._ensure_accepting_requests_job()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.engine.dispose()
+        return None
 
     async def _ensure_accepting_requests_job(self):
-        """ACCEPTING_REQUESTS 상태의 Job이 정확히 하나만 있도록 보장"""
-        async with self.async_session() as session:
-            # 기존 ACCEPTING_REQUESTS Job 확인
-            result = await session.execute(
-                select(GeminiBatchJobs)
-                .where(GeminiBatchJobs.status == JobStatus.ACCEPTING_REQUESTS.value)
+        """Ensure exactly one ACCEPTING_REQUESTS job exists in MongoDB."""
+        jobs_col = self.collections.analysis_jobs
+        accepting = list(jobs_col.find({"status": JobStatus.ACCEPTING_REQUESTS}))
+        if len(accepting) == 0:
+            jobs_col.insert_one({
+                "name": None,
+                "status": JobStatus.ACCEPTING_REQUESTS,
+                "file_size_bytes": 0,
+                "post_count": 0,
+                "post_ids": [],  # Store ObjectIds of registered posts
+                "result": None,
+                "created_at": datetime.now(),
+                "updated_at": datetime.now(),
+            })
+        elif len(accepting) > 1:
+            keep_id = accepting[0]["_id"]
+            jobs_col.update_many(
+                {"_id": {"$ne": keep_id}, "status": JobStatus.ACCEPTING_REQUESTS},
+                {"$set": {"status": JobStatus.PENDING, "updated_at": datetime.now()}}
             )
-            accepting_jobs = result.scalars().all()
-
-            if len(accepting_jobs) == 0:
-                # 없으면 새로 생성
-                new_job = GeminiBatchJobs(
-                    status=JobStatus.ACCEPTING_REQUESTS.value,
-                    file_size_bytes=0,
-                    request_count=0
-                )
-                session.add(new_job)
-                await session.commit()
-                print("새로운 Batch Job이 생성되었습니다.")
-
-            elif len(accepting_jobs) > 1:
-                # 여러 개 있으면 첫 번째만 남기고 나머지는 PENDING으로 변경
-                keep_job = accepting_jobs[0]
-                for job in accepting_jobs[1:]:
-                    await session.execute(
-                        update(GeminiBatchJobs)
-                        .where(GeminiBatchJobs.id == job.id)
-                        .values(status=JobStatus.PENDING.value)
-                    )
-                await session.commit()
-                print(f"중복된 ACCEPTING_REQUESTS Job들을 정리함. 유지: {keep_job.id}")
 
     def format(self, post: Post) -> list:
         instruction = (
@@ -195,472 +138,315 @@ class PostAnalyzer:
 
     def _estimate_request_size(self, post: Post) -> int:
         """요청의 예상 크기를 바이트 단위로 계산"""
-        contents = json.dumps(self.format(post), ensure_ascii=False)
-        generation_config = json.dumps({"temperature": 0.2}, ensure_ascii=False)
-
         batch_data = {
             "key": f"request-temp",
             "request": {
-                "contents": json.loads(contents),
-                "generation_config": json.loads(generation_config)
+                "contents": self.format(post),
+                "generation_config": self.generation_config
             }
         }
 
-        jsonl_line = json.dumps(batch_data, ensure_ascii=False) + "\n"
+        jsonl_line = json.dumps(batch_data, ensure_ascii=False,) + "\n"
         return len(jsonl_line.encode('utf-8'))
 
-    async def _get_accepting_requests_job(self) -> Optional[GeminiBatchJobs]:
-        """현재 ACCEPTING_REQUESTS 상태의 Job 가져오기"""
-        async with self.async_session() as session:
-            result = await session.execute(
-                select(GeminiBatchJobs)
-                .where(GeminiBatchJobs.status == JobStatus.ACCEPTING_REQUESTS.value)
-            )
-            return result.scalar_one_or_none()
+    async def _get_accepting_requests_job(self) -> Optional[Dict[str, Any]]:
+        """현재 ACCEPTING_REQUESTS 상태의 Job 가져오기 (Mongo)"""
+        return self.collections.analysis_jobs.find_one({"status": JobStatus.ACCEPTING_REQUESTS.value})
 
     async def is_accepting_requests(self) -> bool:
         """새로운 요청을 받을 수 있는 상태인지 확인"""
         accepting_job = await self._get_accepting_requests_job()
         return accepting_job is not None
 
-    async def register(self, post: Post) -> bool:
+    async def register(self, post_id: str) -> bool:
         """
-        배치 요청에 post 등록
+        배치 요청에 post 등록 (MongoDB)
         Returns: 등록 성공 여부
         """
         if not await self.is_accepting_requests():
             return False
 
-        async with self.async_session() as session:
-            try:
-                # 요청 크기 추정
-                estimated_size = self._estimate_request_size(post)
+        posts_collection = self.collections.posts
+        jobs_collection = self.collections.analysis_jobs
+        post: Post = Post.from_mongo(posts_collection.find_one({"_id": ObjectId(post_id)}))
 
-                # 중복 확인을 위한 고유 키 생성
-                post_hash = hash(f"{post.title}:{post.text}")
-                request_key = f"request-{abs(post_hash)}"
+        # 요청 크기 추정
+        estimated_size = self._estimate_request_size(post)
 
-                # 이미 존재하는 요청인지 확인
-                existing = await session.execute(
-                    select(GeminiRequests).where(GeminiRequests.request_key == request_key)
+        # 현재 ACCEPTING_REQUESTS Job 가져오기
+        current_job = jobs_collection.find_one({"status": JobStatus.ACCEPTING_REQUESTS})
+        if not current_job:
+            await self._ensure_accepting_requests_job()
+            current_job = jobs_collection.find_one({"status": JobStatus.ACCEPTING_REQUESTS})
+        if not current_job:
+            return False
+
+        # 1GB 제한 확인
+        if int(current_job.get("file_size_bytes", 0)) + estimated_size > self.MAX_FILE_SIZE_BYTES:
+            jobs_collection.update_one(
+                {"_id": current_job["_id"]},
+                {"$set": {"status": JobStatus.PENDING, "updated_at": datetime.now()}}
+            )
+            # 새 Job 생성
+            jobs_collection.insert_one({
+                "name": None,
+                "post_count": 0,
+                "status": JobStatus.ACCEPTING_REQUESTS,
+                "file_size_bytes": 0,
+                "result": None,
+                "created_at": datetime.now(),
+                "updated_at": datetime.now(),
+            })
+            current_job = jobs_collection.find_one({"status": JobStatus.ACCEPTING_REQUESTS})
+
+        # post의 analysis job id 필드를 현재 작업 id로 설정
+        # analysis_job_id가 현재 작업의 ID가 아닌 경우에만 원자적 업데이트
+        result = posts_collection.update_one(
+            {
+                "_id": ObjectId(post_id),
+                "text": {"$ne": None},
+                "analysis": None,
+                "analysis_job_id": {"$ne": current_job["_id"]},
+            },
+            {
+                "$set": {"analysis_job_id": current_job["_id"]},
+            }
+        )
+        # 실제로 업데이트된 경우에만 카운트 증가
+        if result.modified_count > 0:
+            # Job 크기, 개수 업데이트
+            jobs_collection.update_one(
+                {"_id": current_job["_id"]},
+                {
+                    "$inc": {"file_size_bytes": int(estimated_size), "post_count": 1},
+                    "$set": {"updated_at": datetime.now()},
+                }
+            )
+            logger.info(f"게시글을 작업에 등록했습니다. Post ID: {post_id}, Job ID: {current_job['_id']}")
+        else:
+            logger.warning(f"이미 등록되어 있거나 조건에 맞지 않는 게시글입니다. Post ID: {post_id}")
+            return False
+
+        return True
+
+    async def register_all(self):
+        posts_collection = self.collections.posts
+        analysis_jobs_collection = self.collections.analysis_jobs
+
+        posts_to_analyze = list(posts_collection.find({
+            "text": {"$ne": None},
+            "analysis": None,
+            "analysis_job_id": {"$nin": [
+                job["_id"]
+                for job in analysis_jobs_collection.find(
+                    {"status": {"$in": [JobStatus.ACCEPTING_REQUESTS, JobStatus.PENDING]}},
                 )
-                if existing.scalar_one_or_none():
-                    return True  # 이미 등록된 요청
-
-                # 현재 ACCEPTING_REQUESTS Job 가져오기
-                result = await session.execute(
-                    select(GeminiBatchJobs)
-                    .where(GeminiBatchJobs.status == JobStatus.ACCEPTING_REQUESTS.value)
-                )
-                current_job = result.scalar_one()
-
-                # 1GB 제한 확인
-                if (current_job.file_size_bytes + estimated_size) > self.MAX_FILE_SIZE_BYTES:
-                    # 현재 Job을 PENDING으로 변경
-                    await session.execute(
-                        update(GeminiBatchJobs)
-                        .where(GeminiBatchJobs.id == current_job.id)
-                        .values(status=JobStatus.PENDING.value, updated_at=datetime.now())
-                    )
-
-                    # 새로운 ACCEPTING_REQUESTS Job 생성
-                    new_job = GeminiBatchJobs(
-                        status=JobStatus.ACCEPTING_REQUESTS.value,
-                        file_size_bytes=0,
-                        request_count=0
-                    )
-
-                    session.add(new_job)
-                    await session.flush()  # ID 생성을 위해
-                    current_job = new_job
-                    print(f"1GB 한계 도달. 새 Job {new_job.id} 생성")
-
-                # 요청 데이터 생성
-                contents = json.dumps(self.format(post), ensure_ascii=False)
-                generation_config = json.dumps({"temperature": 0.2}, ensure_ascii=False)
-
-                # 새 요청 저장
-                new_request = GeminiRequests(
-                    request_key=request_key,
-                    batch_job_id=current_job.id,
-                    post_title=post.title,
-                    post_text=post.text or "",
-                    post_link=post.link,
-                    contents=contents,
-                    generation_config=generation_config,
-                    estimated_size_bytes=estimated_size
-                )
-
-                session.add(new_request)
-
-                # Job 크기 및 개수 업데이트
-                await session.execute(
-                    update(GeminiBatchJobs)
-                    .where(GeminiBatchJobs.id == current_job.id)
-                    .values(
-                        file_size_bytes=current_job.file_size_bytes + estimated_size,
-                        request_count=current_job.request_count + 1,
-                        updated_at=datetime.now()
-                    )
-                )
-
-                await session.commit()
-                return True
-
-            except Exception as e:
-                await session.rollback()
-                print(f"등록 실패: {e}")
-                return False
+            ]}
+        }))
+        for doc in posts_to_analyze:
+            await self.register(doc["_id"])
 
     async def submit_batch(self) -> Optional[List[str]]:
         """
-        배치 작업 제출 - ACCEPTING_REQUESTS와 PENDING 상태의 모든 Job들을 제출
+        배치 작업 제출 - ACCEPTING_REQUESTS와 PENDING 상태의 모든 Job들을 제출 (Mongo)
         Returns: 제출된 배치 작업명 리스트 또는 None (실패시)
         """
-        async with self.async_session() as session:
-            # 제출할 Job들 가져오기 (ACCEPTING_REQUESTS + PENDING)
-            jobs_result = await session.execute(
-                select(GeminiBatchJobs)
-                .where(
-                    and_(
-                        GeminiBatchJobs.status.in_([
-                            JobStatus.ACCEPTING_REQUESTS.value,
-                            JobStatus.PENDING.value
-                        ]),
-                        GeminiBatchJobs.request_count > 0  # 요청이 있는 Job만
-                    )
-                )
-            )
-            jobs_to_submit = jobs_result.scalars().all()
+        posts_collection = self.collections.posts
+        analysis_jobs_collection = self.collections.analysis_jobs
 
-            if not jobs_to_submit:
-                print("제출할 작업이 없음")
-                return None
+        jobs_to_submit = list(analysis_jobs_collection.find({
+            "status": {"$in": [JobStatus.ACCEPTING_REQUESTS.value, JobStatus.PENDING.value]},
+            "post_count": {"$gt": 0}
+        }))
+        if not jobs_to_submit:
+            return None
 
-            submitted_job_names = []
+        logger.info(f"제출하지 않은 작업 {len(jobs_to_submit)}개가 발견되었습니다.")
 
-            for job in jobs_to_submit:
-                try:
-                    # Job의 요청들 가져오기
-                    requests_result = await session.execute(
-                        select(GeminiRequests)
-                        .where(GeminiRequests.batch_job_id == job.id)
-                        .where(GeminiRequests.is_processed == False)
-                    )
-                    requests = requests_result.scalars().all()
-
-                    if not requests:
-                        continue
-
-                    # JSONL 파일 생성
-                    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
-                        temp_path = f.name
-
-                        for req in requests:
-                            batch_data = {
-                                "key": req.request_key,
-                                "request": {
-                                    "contents": json.loads(req.contents),
-                                    "generation_config": json.loads(req.generation_config)
-                                }
-                            }
-                            f.write(json.dumps(batch_data, ensure_ascii=False) + "\n")
-
-                    try:
-                        # 파일 업로드
-                        uploaded_file = self.client.files.upload(
-                            file=temp_path,
-                            config=types.UploadFileConfig(
-                                display_name=f'batch-job-{job.id}-{datetime.now().strftime("%Y%m%d-%H%M%S")}',
-                                mime_type='application/jsonl'
-                            )
-                        )
-
-                        print(f"파일 업로드됨: {uploaded_file.name}")
-
-                        # 배치 작업 생성
-                        batch_job = self.client.batches.create(
-                            requests_file=uploaded_file.name,
-                            config=types.CreateBatchConfig(
-                                model="models/gemini-2.0-flash-exp"
-                            )
-                        )
-
-                        # Job 상태를 SUBMITTED로 업데이트
-                        await session.execute(
-                            update(GeminiBatchJobs)
-                            .where(GeminiBatchJobs.id == job.id)
-                            .values(
-                                name=batch_job.name,
-                                status=JobStatus.SUBMITTED.value,
-                                updated_at=datetime.now()
-                            )
-                        )
-
-                        submitted_job_names.append(batch_job.name)
-                        print(f"배치 작업 제출됨: {batch_job.name}")
-
-                    finally:
-                        # 임시 파일 정리
-                        if os.path.exists(temp_path):
-                            os.unlink(temp_path)
-
-                except Exception as e:
-                    print(f"Job {job.id} 제출 실패: {e}")
-                    # 개별 Job 실패해도 다른 Job들은 계속 처리
-                    await session.execute(
-                        update(GeminiBatchJobs)
-                        .where(GeminiBatchJobs.id == job.id)
-                        .values(status=JobStatus.FAILED.value, updated_at=datetime.now())
-                    )
+        submitted_job_names: list[str] = []
+        for job in jobs_to_submit:
+            try:
+                post_docs = list(posts_collection.find({
+                    "text": {"$ne": None},
+                    "analysis": None,
+                    "analysis_job_id": job["_id"],
+                }))
+                if not post_docs:
                     continue
 
-            await session.commit()
-
-            # 새로운 ACCEPTING_REQUESTS Job 생성 (모든 Job이 제출된 후)
-            await self._ensure_accepting_requests_job()
-
-            return submitted_job_names if submitted_job_names else None
-
-    async def check_batch_status(self) -> Optional[Dict[str, Any]]:
-        """배치 작업 상태 확인 및 업데이트. 완료된 경우 결과 처리는 포함하지 않음"""
-        async with self.async_session() as session:
-            jobs_result = await session.execute(
-                select(GeminiBatchJobs)
-                .where(
-                    and_(
-                        GeminiBatchJobs.status.in_([
-                            JobStatus.SUBMITTED.value,
-                            JobStatus.PROCESSING.value
-                        ]),
-                        GeminiBatchJobs.name.isnot(None)
-                    )
-                )
-            )
-            active_jobs = jobs_result.scalars().all()
-
-            if not active_jobs:
-                return None
-
-            job_statuses = []
-
-            for job in active_jobs:
+                with tempfile.NamedTemporaryFile(
+                    mode='w',
+                    suffix='.jsonl',
+                    delete=False,
+                    encoding='utf-8'
+                ) as f:
+                    temp_path = f.name
+                    for doc in post_docs:
+                        post = Post.from_mongo(doc)
+                        batch_data = {
+                            "key": str(doc["_id"]),
+                            "request": {
+                                "contents": self.format(post),
+                                "generation_config": self.generation_config
+                            }
+                        }
+                        f.write(json.dumps(batch_data, ensure_ascii=False) + "\n")
                 try:
-                    batch_info = self.client.batches.get(job.name)
-
-                    new_status = None
-                    if getattr(batch_info, 'state', None) == "COMPLETED":
-                        new_status = JobStatus.COMPLETED.value
-                    elif getattr(batch_info, 'state', None) in ["FAILED", "CANCELLED"]:
-                        new_status = JobStatus.FAILED.value
-                    elif getattr(batch_info, 'state', None) == "RUNNING":
-                        new_status = JobStatus.PROCESSING.value
-
-                    if new_status and new_status != job.status:
-                        await session.execute(
-                            update(GeminiBatchJobs)
-                            .where(GeminiBatchJobs.id == job.id)
-                            .values(status=new_status, updated_at=datetime.now())
+                    job_id = str(job["_id"])[:8]
+                    current_time = datetime.now().strftime("%Y%m%d-%H%M%S")
+                    uploaded_file = self.client.files.upload(
+                        file=temp_path,
+                        config=types.UploadFileConfig(
+                            display_name=f"file-{job_id}-{current_time}",
+                            mime_type="jsonl"
                         )
+                    )
+                    batch_job = self.client.batches.create(
+                        model="gemini-2.5-flash",
+                        src=uploaded_file.name,
+                        config=CreateBatchJobConfig(
+                            display_name=f"batch-job-{job_id}-{current_time}"
+                        ),
+                    )
+                    analysis_jobs_collection.update_one(
+                        {"_id": job["_id"]},
+                        {"$set": {"name": batch_job.name, "status": JobStatus.SUBMITTED, "updated_at": datetime.now()}}
+                    )
+                    submitted_job_names.append(batch_job.name)
+                    job["name"] = batch_job.name
+                finally:
+                    if os.path.exists(temp_path):
+                        os.unlink(temp_path)
+            except Exception as e:
+                logger.error(f"작업 제출 실패. Job name: {job.get('name')}, Job ID: {job.get('_id')}  error:{e}")
+                analysis_jobs_collection.update_one(
+                    {"_id": job["_id"]},
+                    {"$set": {"status": JobStatus.FAILED, "updated_at": datetime.now()}}
+                )
+                continue
+            else:
+                logger.info(f"작업이 제출되었습니다. Job name: {job.get('name')}, Job ID: {job.get('_id')}")
 
-                    job_statuses.append({
-                        "job_id": job.id,
-                        "name": getattr(batch_info, 'name', job.name),
-                        "state": getattr(batch_info, 'state', job.status),
-                        "request_count": getattr(batch_info, 'request_count', 0),
-                        "processed_count": getattr(batch_info, 'processed_count', 0)
-                    })
+        await self._ensure_accepting_requests_job()
+        return submitted_job_names if submitted_job_names else None
 
-                except Exception as e:
-                    print(f"Job {job.id} 상태 확인 실패: {e}")
+    async def check_batch_status(self) -> None:
+        """배치 작업 상태 확인 및 업데이트. 완료된 경우 결과 처리는 포함하지 않음 (Mongo)"""
+        jobs_col = self.collections.analysis_jobs
+        active_jobs = list(jobs_col.find({
+            "status": JobStatus.SUBMITTED,
+            "name": {"$ne": None}
+        }))
+        if not active_jobs:
+            return None
 
-            await session.commit()
+        job_statuses: list[dict[str, Any]] = []
+        for job in active_jobs:
+            try:
+                batch_info = self.client.batches.get(name=job["name"]) if job.get("name") else None
+                if batch_info is None:
+                    logger.warning(f"MongoDB에 저장된 배치 작업이 gemini batch 대기열에 없습니다. job id: {job.get('_id')}")
+                    continue
 
-            return {
-                "jobs": job_statuses,
-                "total_jobs": len(job_statuses)
-            }
+                state = batch_info.state.name
+                new_status = None
+                match state:
+                    case GeminiBatchJobState.SUCCEEDED:
+                        logger.info(f"배치 작업이 gemini에서 성공했습니다. Job ID: {job.get('_id')}, Job name: {job.get('name')}")
+                        new_status = JobStatus.PROCESSED
+                    case GeminiBatchJobState.FAILED:
+                        logger.warning(f"배치 작업이 gemini에서 실패했습니다. Job ID: {job.get('_id')}, Job name: {job.get('name')}")
+                        new_status = JobStatus.FAILED
+                    case GeminiBatchJobState.CANCELLED:
+                        logger.warning(f"배치 작업이 gemini에서 취소되었습니다. Job ID: {job.get('_id')}, Job name: {job.get('name')}")
+                        new_status = JobStatus.FAILED
+                    case GeminiBatchJobState.EXPIRED:
+                        logger.warning(f"배치 작업이 gemini에서 만료되었습니다. Job ID: {job.get('_id')}, Job name: {job.get('name')}")
+                        new_status = JobStatus.FAILED
+                    case GeminiBatchJobState.PENDING:
+                        logger.info(f"배치 작업이 gemini에서 대기 중입니다. Job ID: {job.get('_id')}, Job name: {job.get('name')}")
+                    case GeminiBatchJobState.RUNNING:
+                        logger.info(f"배치 작업이 gemini에서 작업 중입니다. Job ID: {job.get('_id')}, Job name: {job.get('name')}")
+                    case _:
+                        logger.warning(f"배치 작업이 알 수 없는 상태에 있습니다. state: {state}, Job ID: {job.get('_id')}, Job name: {job.get('name')}")
+
+                if new_status:
+                    jobs_col.update_one(
+                        {"_id": job["_id"]},
+                        {"$set": {"status": new_status, "updated_at": datetime.now()}}
+                    )
+            except Exception as e:
+                logger.error(f"Job {job.get('_id')} 상태 확인 실패: {e}")
+
+        return None
 
     async def get_job_statistics(self) -> Dict[str, Any]:
-        """Job 통계 조회"""
-        async with self.async_session() as session:
-            # 각 상태별 Job 개수
-            status_counts = {}
-            for status in JobStatus:
-                result = await session.execute(
-                    select(func.count(GeminiBatchJobs.id))
-                    .where(GeminiBatchJobs.status == status.value)
-                )
-                status_counts[status.value] = result.scalar() or 0
-
-            # 대기 중인 요청 수 (ACCEPTING_REQUESTS + PENDING Job의 요청들)
-            pending_requests_result = await session.execute(
-                select(func.count(GeminiRequests.id))
-                .join(GeminiBatchJobs)
-                .where(
-                    GeminiBatchJobs.status.in_([
-                        JobStatus.ACCEPTING_REQUESTS.value,
-                        JobStatus.PENDING.value
-                    ])
-                )
-                .where(GeminiRequests.is_processed == False)
-            )
-            pending_requests = pending_requests_result.scalar() or 0
-
-            # 처리된 요청 수
-            processed_requests_result = await session.execute(
-                select(func.count(GeminiRequests.id))
-                .where(GeminiRequests.is_processed == True)
-            )
-            processed_requests = processed_requests_result.scalar() or 0
-
-            return {
-                "job_status_counts": status_counts,
-                "pending_requests": pending_requests,
-                "processed_requests": processed_requests,
-                "total_requests": pending_requests + processed_requests
-            }
+        """Job 통계 조회 (Mongo)"""
+        jobs_col = self.collections.analysis_jobs
+        req_col = self.collections.gemini_requests
+        # 상태별 Job 개수
+        status_counts: Dict[str, int] = {}
+        for status in JobStatus:
+            status_counts[status.value] = jobs_col.count_documents({"status": status.value})
+        # 대기 중인 요청 수: accepting + pending, 미처리
+        pending_job_ids = [j["_id"] for j in jobs_col.find({"status": {"$in": [JobStatus.ACCEPTING_REQUESTS.value, JobStatus.PENDING.value]}})]
+        pending_requests = req_col.count_documents({"batch_job_id": {"$in": pending_job_ids} , "is_processed": False}) if pending_job_ids else 0
+        processed_requests = req_col.count_documents({"is_processed": True})
+        return {
+            "job_status_counts": status_counts,
+            "pending_requests": pending_requests,
+            "processed_requests": processed_requests,
+            "total_requests": pending_requests + processed_requests,
+        }
 
     async def reset_batch(self):
-        """배치 상태 리셋 - 모든 Job을 정리하고 새로 시작"""
-        async with self.async_session() as session:
-            await session.execute(
-                update(GeminiBatchJobs)
-                .values(status=JobStatus.FAILED.value)
-                .where(GeminiBatchJobs.status != JobStatus.COMPLETED.value)
-            )
-            await session.commit()
-            await self._ensure_accepting_requests_job()
-            print("배치 상태가 리셋되었습니다.")
+        """배치 상태 리셋 - 모든 Job을 정리하고 새로 시작 (Mongo)"""
+        jobs_col = self.collections.analysis_jobs
+        jobs_col.update_many(
+            {"status": {"$ne": JobStatus.COMPLETED.value}},
+            {"$set": {"status": JobStatus.FAILED.value, "updated_at": datetime.now()}}
+        )
+        await self._ensure_accepting_requests_job()
+        print("배치 상태가 리셋되었습니다.")
 
-    async def process_completed_jobs(self) -> Dict[str, Any]:
-        """완료된 배치 작업의 결과를 다운로드 및 파싱하여 MongoDB Post에 저장"""
+    async def process_completed_jobs(self) -> None:
+        """완료된 배치 작업의 결과를 다운로드 및 파싱하여 MongoDB Post에 저장 (Mongo)"""
         processed = {"jobs": 0, "requests": 0}
-        async with self.async_session() as session:
-            jobs_result = await session.execute(
-                select(GeminiBatchJobs)
-                .where(GeminiBatchJobs.status == JobStatus.COMPLETED.value)
-                .where(GeminiBatchJobs.name.isnot(None))
-            )
-            completed_jobs = jobs_result.scalars().all()
-            if not completed_jobs:
-                return processed
+        jobs_col = self.collections.analysis_jobs
+        posts_col = self.collections.posts
 
-            from core.mongo.connections import MongoCollections
-            posts_col = MongoCollections().posts
+        processed_jobs = list(jobs_col.find({"status": JobStatus.PROCESSED, "name": {"$ne": None}}))
+        if not processed_jobs:
+            return None
 
-            for job in completed_jobs:
-                try:
-                    batch_info = self.client.batches.get(job.name)
-                    # 다양한 SDK 버전을 대비한 결과 파일 속성 탐색
-                    result_file_name = None
-                    candidates = [
-                        getattr(batch_info, 'result', None),
-                        getattr(batch_info, 'results', None),
-                        getattr(batch_info, 'output_file', None),
-                    ]
-                    for c in candidates:
-                        if isinstance(c, dict) and 'output_file' in c:
-                            result_file_name = c['output_file']
-                            break
-                        if isinstance(c, str):
-                            result_file_name = c
-                            break
-                        if hasattr(c, 'output_file'):
-                            result_file_name = getattr(c, 'output_file')
-                            break
-                    # 최후 수단: batch_info 자체에 files 속성 검사
-                    if not result_file_name and hasattr(batch_info, 'files'):
-                        files = getattr(batch_info, 'files')
-                        if isinstance(files, list) and files:
-                            result_file_name = files[0]
+        for job in processed_jobs:
+            try:
+                batch_info = self.client.batches.get(name=job.get("name")) if job.get("name") else None
+                if batch_info is None:
+                    logger.warning(f"MongoDB에 gemini 작업 성공으로 표시된 배치 작업이 gemini batch 대기열에 없습니다. job id: {job.get('_id')}")
+                    continue
+                elif not batch_info.dest or not batch_info.dest.file_name:
+                    logger.warning(f"Gemini batch 대기열에서 찾은 배치 작업에서 파일이 존재하지 않습니다. job id: {job.get('_id')}")
+                    continue
 
-                    if not result_file_name:
-                        print(f"Job {job.id} 결과 파일을 찾지 못했습니다.")
+                # If batch job was created with a file, Results are in a file
+                result_file_name = batch_info.dest.file_name
+                logger.info(f"배치 작업 이름: {job.get("name")}, 결과 파일 이름: {result_file_name} 다운로드 중...")
+                file_content = self.client.files.download(file=result_file_name)
+                # Process file_content (bytes) as needed
+                result_text = file_content.decode('utf-8')
+                print(result_text)
+
+                for line in result_text.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                        print(obj)
+                    except Exception as e:
+                        logger.error(f"결과가 json 형태가 아닙니다. result line: {line}, error: {e}")
                         continue
 
-                    downloaded = self.client.files.download(file=result_file_name)
-                    # 다운로드 결과에서 텍스트 추출
-                    content_text = getattr(downloaded, 'text', None) or getattr(downloaded, 'content', None)
-                    if not isinstance(content_text, str):
-                        try:
-                            content_text = downloaded.read().decode('utf-8')
-                        except Exception:
-                            content_text = ""
-
-                    # JSONL 파싱
-                    for line in content_text.splitlines():
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            obj = json.loads(line)
-                        except Exception:
-                            continue
-
-                        req_key = obj.get('key') or obj.get('request', {}).get('key')
-                        # 응답 텍스트 추출
-                        resp_text = None
-                        response = obj.get('response')
-                        if response:
-                            try:
-                                # google genai 응답 구조 가정
-                                cands = response.get('candidates') or []
-                                if cands:
-                                    parts = cands[0].get('content', {}).get('parts', [])
-                                    if parts:
-                                        resp_text = parts[0].get('text')
-                            except Exception:
-                                pass
-                        if not resp_text and 'error' in obj:
-                            resp_text = json.dumps(obj['error'], ensure_ascii=False)
-                        if resp_text is None:
-                            continue
-
-                        # GeminiRequests 업데이트
-                        req_row_result = await session.execute(
-                            select(GeminiRequests).where(GeminiRequests.request_key == req_key)
-                        )
-                        req_row = req_row_result.scalar_one_or_none()
-                        if not req_row:
-                            continue
-                        await session.flush()
-                        req_row.result = resp_text
-                        req_row.is_processed = True
-
-                        # 분석 결과 파싱(JSON 기대)
-                        analysis_dict = None
-                        try:
-                            analysis_dict = json.loads(resp_text)
-                        except Exception:
-                            # 비 JSON 응답은 건너뜀
-                            analysis_dict = None
-
-                        if analysis_dict and isinstance(analysis_dict, dict):
-                            # MongoDB 업데이트
-                            try:
-                                update_fields = {"analysis": analysis_dict}
-                                try:
-                                    # 판매글일 경우 본문을 함께 저장
-                                    if isinstance(analysis_dict.get("drugs_related"), bool) and analysis_dict.get("drugs_related"):
-                                        update_fields["text"] = req_row.post_text or ""
-                                    else:
-                                        # 판매글이 아닌 경우 본문은 저장하지 않도록 명시적으로 제거 가능 (선택)
-                                        update_fields["text"] = None
-                                except Exception:
-                                    pass
-                                posts_col.update_one(
-                                    {"link": req_row.post_link},
-                                    {"$set": update_fields},
-                                    upsert=False,
-                                )
-                            except Exception as e:
-                                print(f"MongoDB 업데이트 실패: {e}")
-                        processed["requests"] += 1
-
-                    processed["jobs"] += 1
-
-                except Exception as e:
-                    print(f"Job {job.id} 결과 처리 실패: {e}")
-            await session.commit()
-        return processed
+            except Exception as e:
+                print(f"Job {job.get('_id')} 결과 처리 실패: {e}")

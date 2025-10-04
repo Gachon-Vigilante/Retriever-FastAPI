@@ -5,25 +5,24 @@ from pydantic import BaseModel, Field
 from lxml import html, etree
 
 from core.constants import TELEGRAM_LINK_PATTERN, CRAWLER_HEADERS
-from core.mongo.schemas import Post
+from core.mongo.schemas import Post, PostFields
 from utils import Logger
 
 logger = Logger(__name__)
 
 class CrawlerResult(BaseModel):
-    posts: list[str] = Field(
-        default_factory=list,
-        title="웹 게시글",
-        description="각 검색어에 대해 검색된 온라인 게시글 링크 목록",
+    html: str | None = Field(
+        default=None,
+        title="게시글 원본 HTML",
+        description="웹 게시글의 원본 HTML",
+        alias=PostFields.html
     )
-    telegram_links: list[str] = Field(
-        default_factory=list,
-        title="텔레그램 링크",
-        description="각 검색어에 대해 검색된 텔레그램 링크 목록",
+    text: str | None = Field(
+        default=None,
+        title="게시글의 텍스트",
+        description="웹 게시글의 원본 HTML에서 HTML 태그 등 무의히만 내용을 제거하고 남은 텍스트",
+        alias=PostFields.text
     )
-
-    def __len__(self):
-        return len(self.posts) + len(self.telegram_links)
 
 class TotalCrawledResult(BaseModel):
     results: list[CrawlerResult] = Field(
@@ -36,45 +35,16 @@ class TotalCrawledResult(BaseModel):
                 f"게시글: {sum([len(r.posts) for r in self.results])}건, "
                 f"텔레그램 채널: {sum([len(r.telegram_links) for r in self.results])}건")
 
-
-class Crawler:
+class SearchEngine:
     def __init__(
             self,
             keywords: list[str],
             limit: int = 10,
-            handler: Optional[Callable[[Post], Coroutine[Any, Any, None]]] = None,
             max_retries: int = 3
     ):
         self.keywords = keywords
         self.limit = limit
-        self.handler = handler
         self.max_retries = max_retries
-
-    async def crawl(self) -> TotalCrawledResult:
-        total = TotalCrawledResult()
-        for keyword in self.keywords:
-            result = CrawlerResult()
-            posts = self.search(keyword, limit=self.limit)
-            for post in posts:
-                link = post.link
-                if _is_telegram_link(link):
-                    result.telegram_links.append(link)
-                else:
-                    result.posts.append(link)
-
-                content = await self.visit(link)
-                if content:
-                    # Store extracted text content in the Post model
-                    try:
-                        setattr(post, "text", content)
-                    except Exception:
-                        # Fallback for different Post schema imports
-                        post.text = content  # type: ignore
-                if self.handler:
-                    await self.handler(post)
-            total.results.append(result)
-        return total
-
 
     def search(
             self,
@@ -83,7 +53,14 @@ class Crawler:
     ) -> list[Post]:
         raise NotImplementedError("search() method is not implemented.")
 
-    async def visit(self, link: str) -> str | None:
+class WebpageCrawler:
+    def __init__(
+            self,
+            max_retries: int = 3
+    ):
+        self.max_retries = max_retries
+
+    async def crawl(self, link: str) -> CrawlerResult | None:
         visit_error = None
         timeout_seconds = 1
         for retry in range(self.max_retries):
@@ -95,7 +72,11 @@ class Crawler:
                             html_content = await response.text()
                             # HTML에서 유의미한 텍스트만 추출
                             extracted_text = extract(html_content)
-                            return extracted_text if extracted_text.strip() else None
+                            # HTML과 추출한 텍스트를 CrawlerResult로 묶어서 반환
+                            return CrawlerResult(
+                                html=html_content,
+                                text=extracted_text.strip()
+                            )
                         else:
                             logger.warning(f"방문한 웹 페이지에서 다음과 같은 오류를 반환했습니다. "
                                            f"Status code: {response.status}, Reason: {response.reason}")
@@ -111,10 +92,7 @@ class Crawler:
         logger.warning(f"모든 웹 페이지 방문 시도가 실패했습니다. Tried {self.max_retries} times, Error: {visit_error}")
         return None
 
-
-
-
-def _is_telegram_link(link: str) -> bool:
+def is_telegram_link(link: str) -> bool:
     return True if re.findall(TELEGRAM_LINK_PATTERN, link) else False
 
 

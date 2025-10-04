@@ -3,10 +3,10 @@ import requests
 from typing import List
 
 from core.mongo.post import Post
-from .base import Crawler
+from crawlers.base import SearchEngine
 
 
-class SerpApiCrawler(Crawler):
+class SerpApiSearchEngine(SearchEngine):
     def search(
             self,
             keyword: str,

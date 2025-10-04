@@ -1,5 +1,5 @@
-import threading
-
+from enum import StrEnum
+from bson import ObjectId
 from pydantic import Field, BaseModel
 from datetime import datetime
 
@@ -36,6 +36,19 @@ class PostAnalysisResult(BaseModel):
 
 logger = Logger(__name__)
 
+class PostFields(StrEnum):
+    """Post fields"""
+    title = "title"
+    link = "link"
+    domain = "domain"
+    html = "html"
+    text = "text"
+    analysis = "analysis"
+    analysis_job_id = "analysis_job_id"
+    description = "description"
+    published_at = "published_at"
+    discovered_at = "discovered_at"
+
 class Post(BaseMongoObject):
     title: str = Field(
         title="Page Title",
@@ -49,10 +62,17 @@ class Post(BaseMongoObject):
         title="Page Domain",
         description="Domain of the webpage (e.g. google.com)"
     )
+    html: str | None = Field(
+        default=None,
+        title="Page HTML Content",
+        description="HTML content of the webpage",
+        alias=PostFields.html,
+    )
     text: str | None = Field(
         default=None,
         title="Page Text Content",
-        description="Full text content of the webpage"
+        description="Full text content of the webpage",
+        alias=PostFields.text,
     )
     analysis: PostAnalysisResult | None = Field(
         default=None,
@@ -60,6 +80,11 @@ class Post(BaseMongoObject):
         description="Analysis results of the post"
     )
 
+    analysis_job_id: ObjectId | None = Field(
+        default=None,
+        title="Analysis Job ID",
+        description="ID of the analysis batch job",
+    )
     description: str | None = Field(
         default=None,
         title="Page Description",
@@ -69,19 +94,17 @@ class Post(BaseMongoObject):
         default=None,
         title="Published Date",
         description="Date when the content was published",
-        serialization_alias="publishedAt",
     )
     discovered_at: datetime | None = Field(
         default_factory=datetime.now,
         title="Discovered Date",
         description="Date when the content was discovered",
-        serialization_alias = "discoveredAt",
     )
 
     def __eq__(self, other):
         return self.link == other.link and self.text == other.text
 
-    def store(self):
+    def store(self) -> ObjectId | None:
         post_collection = MongoCollections().posts
         with self._lock:
             existing_post = post_collection.find_one({"link": self.link})
@@ -93,4 +116,8 @@ class Post(BaseMongoObject):
             doc = self.model_dump()
             if 'text' in doc:
                 doc.pop('text')
-            post_collection.insert_one(doc)
+            return post_collection.insert_one(doc).inserted_id
+
+    @classmethod
+    def from_mongo(cls, doc: dict) -> 'Post':
+        return cls(**{k: v for k, v in doc.items() if k != "_id"})

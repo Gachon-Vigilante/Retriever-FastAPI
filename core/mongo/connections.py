@@ -137,6 +137,11 @@ class MongoCollections:
         """
         return self.db.posts
 
+    @property
+    @lru_cache(maxsize=1)
+    def analysis_jobs(self) -> pymongo.collection.Collection:
+        """Gemini 배치 작업 컬렉션"""
+        return self.db.analysis_jobs
 
 _mongo_client: Optional[pymongo.MongoClient] = None
 
