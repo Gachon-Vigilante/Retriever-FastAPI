@@ -13,7 +13,7 @@ def poll_gemini_batches_task():
         async with PostAnalyzer() as analyzer:
             try:
                 await analyzer.check_batch_status()
-                await analyzer.process_completed_jobs()
+                await analyzer.complete_jobs()
             except Exception as e:
                 logger.warning(f"Polling error: {e}")
 

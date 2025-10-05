@@ -9,10 +9,10 @@ from bson import ObjectId
 from google import genai
 from google.genai import types
 from google.genai.types import CreateBatchJobConfig, GenerationConfig
-from pydantic import Field
+from pydantic import Field, ValidationError, BaseModel
 
 from core.mongo.connections import MongoCollections
-from core.mongo.post import Post, PostAnalysisResult, TelegramPromotion
+from core.mongo.post import Post, PostAnalysisResult, TelegramPromotion, PostFields
 from utils import Logger
 from ..models import prompts
 
@@ -34,6 +34,28 @@ class GeminiBatchJobState(StrEnum):
     CANCELLED = "JOB_STATE_CANCELLED"
     EXPIRED = "JOB_STATE_EXPIRED"
 
+class JobCompletionResult(BaseModel):
+    message: str = Field(
+        default="completed all AI processed jobs.",
+        title="Message",
+        description="The message that was returned by the job completion.",
+    )
+    processed_job_count: int = Field(
+        default=0,
+        title="Processed Job Count",
+        description="The number of jobs that were processed in AI successfully.",
+    )
+    completed_job_count: int = Field(
+        default=0,
+        title="Completed Job Count",
+        description="The number of jobs that were completed successfully.",
+    )
+    completed_request_count: int = Field(
+        default=0,
+        title="Completed Request Count",
+        description="The number of requests that were completed successfully.",
+    )
+
 
 class PostAnalyzer:
     # 1GB 크기 제한 상수
@@ -44,7 +66,7 @@ class PostAnalyzer:
         self.template: list = [
             {
                 "parts": [{"text": prompts["analysis"]["post"]["main"]}],
-                "role": "model",
+                "role": "user",
             },
             {
                 "parts": [{"text": "Analyze the following webpage:"}],
@@ -55,42 +77,7 @@ class PostAnalyzer:
         self.generation_config: dict = {
             "temperature": 0.1,
             "response_mime_type": "application/json",
-            "response_json_schema": self._create_gemini_compatible_schema()
-        }
-
-    @staticmethod
-    def _create_gemini_compatible_schema() -> dict:
-        """Gemini API 호환 JSON 스키마 생성"""
-        return {
-            "type": "object",
-            "properties": {
-                "drugs_related": {
-                    "type": "boolean",
-                    "description": "Whether the post is related to drugs promotions or not."
-                },
-                "promotions": {
-                    "type": "array",
-                    "description": "List of detected drug promotions with associated Telegram channel information",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "content": {
-                                "type": "string",
-                                "description": "Drugs promotions content detected in the post."
-                            },
-                            "links": {
-                                "type": "array",
-                                "description": "List of detected telegram links from content.",
-                                "items": {
-                                    "type": "string"
-                                }
-                            }
-                        },
-                        "required": ["content", "links"]
-                    }
-                }
-            },
-            "required": ["drugs_related", "promotions"]
+            "response_json_schema": PostAnalysisResult.gemini_compatible_schema()
         }
 
 
@@ -169,6 +156,10 @@ class PostAnalyzer:
         posts_collection = self.collections.posts
         jobs_collection = self.collections.analysis_jobs
         post: Post = Post.from_mongo(posts_collection.find_one({"_id": ObjectId(post_id)}))
+        # post에 HTML 태그를 제외하고 유의미한 텍스트가 없을 때에는 생략
+        if not post.text:
+            logger.warning(f"게시글에서 유의미한 텍스트가 발견되지 않았습니다. Post ID: {post_id}")
+            return False
 
         # 요청 크기 추정
         estimated_size = self._estimate_request_size(post)
@@ -234,8 +225,8 @@ class PostAnalyzer:
         analysis_jobs_collection = self.collections.analysis_jobs
 
         posts_to_analyze = list(posts_collection.find({
-            "text": {"$ne": None},
-            "analysis": None,
+            "text": {"$nin": [None, ""]},
+            "analysis": {"$nin": [None, ""]},
             "analysis_job_id": {"$nin": [
                 job["_id"]
                 for job in analysis_jobs_collection.find(
@@ -403,50 +394,107 @@ class PostAnalyzer:
         """배치 상태 리셋 - 모든 Job을 정리하고 새로 시작 (Mongo)"""
         jobs_col = self.collections.analysis_jobs
         jobs_col.update_many(
-            {"status": {"$ne": JobStatus.COMPLETED.value}},
-            {"$set": {"status": JobStatus.FAILED.value, "updated_at": datetime.now()}}
+            {"status": {"$ne": JobStatus.COMPLETED}},
+            {"$set": {"status": JobStatus.FAILED, "updated_at": datetime.now()}}
         )
         await self._ensure_accepting_requests_job()
-        print("배치 상태가 리셋되었습니다.")
+        logger.info("배치 작업 상태가 모두 초기화되었습니다.")
 
-    async def process_completed_jobs(self) -> None:
+    async def complete_jobs(self) -> JobCompletionResult:
         """완료된 배치 작업의 결과를 다운로드 및 파싱하여 MongoDB Post에 저장 (Mongo)"""
-        processed = {"jobs": 0, "requests": 0}
+        job_completion_result = JobCompletionResult()
         jobs_col = self.collections.analysis_jobs
         posts_col = self.collections.posts
 
         processed_jobs = list(jobs_col.find({"status": JobStatus.PROCESSED, "name": {"$ne": None}}))
         if not processed_jobs:
-            return None
+            logger.info("Gemini에서 처리 완료되어 그 상태가 MongoDB에 반영된 작업이 없습니다.")
+            return job_completion_result
+        job_completion_result.processed_job_count = len(processed_jobs)
+        logger.info(f"Gemini에서 처리가 완료된 작업 {job_completion_result.processed_job_count}개가 발견되었습니다.")
 
         for job in processed_jobs:
-            try:
-                batch_info = self.client.batches.get(name=job.get("name")) if job.get("name") else None
-                if batch_info is None:
-                    logger.warning(f"MongoDB에 gemini 작업 성공으로 표시된 배치 작업이 gemini batch 대기열에 없습니다. job id: {job.get('_id')}")
+            batch_info = self.client.batches.get(name=job.get("name")) if job.get("name") else None
+            if batch_info is None:
+                logger.warning(f"MongoDB에 gemini 작업 성공으로 표시된 배치 작업이 gemini batch 대기열에 없습니다. job id: {job.get('_id')}")
+                continue
+            elif not batch_info.dest or not batch_info.dest.file_name:
+                logger.warning(f"Gemini batch 대기열에서 찾은 배치 작업에서 파일이 존재하지 않습니다. job id: {job.get('_id')}")
+                continue
+
+            # If batch job was created with a file, Results are in a file
+            result_file_name = batch_info.dest.file_name
+            logger.info(f"배치 작업 이름: {job.get("name")}, 결과 파일 이름: {result_file_name} 다운로드 중...")
+            file_content = self.client.files.download(file=result_file_name)
+            # Process file_content (bytes) as needed
+            result_text = file_content.decode('utf-8')
+
+            result_lines = result_text.splitlines()
+            for line in result_lines:
+                line = line.strip()
+                if not line:
                     continue
-                elif not batch_info.dest or not batch_info.dest.file_name:
-                    logger.warning(f"Gemini batch 대기열에서 찾은 배치 작업에서 파일이 존재하지 않습니다. job id: {job.get('_id')}")
+                try:
+                    response = json.loads(line)
+                except Exception as e:
+                    logger.error(f"결과가 jsonl 형태가 아닙니다. result line: {line}, error: {e}")
                     continue
 
-                # If batch job was created with a file, Results are in a file
-                result_file_name = batch_info.dest.file_name
-                logger.info(f"배치 작업 이름: {job.get("name")}, 결과 파일 이름: {result_file_name} 다운로드 중...")
-                file_content = self.client.files.download(file=result_file_name)
-                # Process file_content (bytes) as needed
-                result_text = file_content.decode('utf-8')
-                print(result_text)
+                if not response:
+                    logger.warning("Gemini의 응답 jsonl 파일에서 비어 있는 줄이 발견되었습니다.")
+                    continue
+                key = self.safe_get(response, "key")
+                analysis = self.safe_get(response, "response", "candidates", 0, "content", "parts", 0, "text")
+                posts_col.update_one(
+                    {"_id": ObjectId(key)},
+                    {"$set": {
+                        # PostFields.analysis_job_id: None,
+                        PostFields.updated_at: datetime.now()
+                    }}
+                )
+                try:
+                    analysis_dict: dict = json.loads(analysis)
+                    if not isinstance(analysis_dict, dict):
+                        raise TypeError(f"Expected dict, got {type(analysis_dict)} instead.")
+                except Exception as e:
+                    logger.error(f"Gemini의 응답이 변환 가능한 json dictionary 형태가 아닙니다. "
+                                 f"result line: {line}, response text: {response}, error: {e}")
+                    continue
 
-                for line in result_text.splitlines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        obj = json.loads(line)
-                        print(obj)
-                    except Exception as e:
-                        logger.error(f"결과가 json 형태가 아닙니다. result line: {line}, error: {e}")
-                        continue
+                try:
+                    post_analysis_result = PostAnalysisResult.model_validate(analysis_dict)
+                except ValidationError as e:
+                    logger.error(f"Gemini의 분석 결과가 응답 스키마에 맞지 않습니다. "
+                                 f"result line: {line}, response text: {response}, error: {e}")
+                    continue
 
-            except Exception as e:
-                print(f"Job {job.get('_id')} 결과 처리 실패: {e}")
+                posts_col.update_one(
+                    {"_id": ObjectId(key)},
+                    {"$set": {
+                        PostFields.analysis: post_analysis_result.model_dump(),
+                        PostFields.updated_at: datetime.now()
+                    }}
+                )
+                job_completion_result.completed_request_count += 1
+
+            jobs_col.update_one(
+                {"_id": job["_id"]},
+                {"$set": {"status": JobStatus.COMPLETED, "updated_at": datetime.now()}}
+            )
+            job_completion_result.completed_job_count += 1
+
+        return job_completion_result
+
+    @staticmethod
+    def safe_get(data: dict, *keys, default=None):
+        """중첩된 딕셔너리에서 안전하게 값을 가져오는 메서드"""
+        original_data = data.copy()
+        for idx, key in enumerate(keys):
+            if isinstance(data, dict) and data.get(key):
+                data = data[key]
+            elif isinstance(key, int) and isinstance(data, list) and len(data) > key:
+                data = data[key]
+            else:
+                logger.error(f"Gemini가 반환한 응답에 {'.'.join(keys[:idx+1])}가 없습니다. Response line: {original_data}")
+                return default
+        return data

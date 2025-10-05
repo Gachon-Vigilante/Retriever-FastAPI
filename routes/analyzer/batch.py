@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from genai.analyzers.post import PostAnalyzer
+from genai.analyzers.post import PostAnalyzer, JobCompletionResult
 from tasks.pipeline.analyze import analyze_batch_task
 
 router = APIRouter(prefix="/batch")
@@ -27,7 +27,6 @@ async def check_batch_status():
     await PostAnalyzer().check_batch_status()
     return {"message": "batch status checked."}
 
-@router.post("/process")
-async def process_completed_jobs():
-    await PostAnalyzer().process_completed_jobs()
-    return {"message": "completed jobs processed."}
+@router.post("/complete")
+async def complete_jobs() -> JobCompletionResult:
+    return await PostAnalyzer().complete_jobs()

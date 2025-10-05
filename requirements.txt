@@ -27,6 +27,8 @@ aiohttp
 beautifulsoup4
 lxml # 더 빠르고 최적화된 HTLM 파싱
 
+# 텔레그램 관련 기능
+
 # Gemini AI
 langchain-google-genai
 google-genai

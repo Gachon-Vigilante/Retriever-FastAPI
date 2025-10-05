@@ -4,6 +4,7 @@ from pydantic import Field, BaseModel
 from datetime import datetime
 
 from utils import Logger
+from genai.models import prompts
 
 from .base import BaseMongoObject
 from .connections import MongoCollections
@@ -26,13 +27,47 @@ class PostAnalysisResult(BaseModel):
         default=False,
         title="Drug Detection",
         description="Whether the post is related to drugs promotions or not.",
-        serialization_alias="drugRelated"
     )
     promotions: list[TelegramPromotion] = Field(
         default_factory=list,
         title="Telegram Promotions",
         description="List of detected drug promotions with associated Telegram channel information extracted from the content"
     )
+
+    @classmethod
+    def gemini_compatible_schema(cls) -> dict:
+        """Gemini API 호환 JSON 스키마 생성"""
+        return {
+            "type": "object",
+            "properties": {
+                "drugs_related": {
+                    "type": "boolean",
+                    "description": prompts["analysis"]["post"]["drugs_related"]
+                },
+                "promotions": {
+                    "type": "array",
+                    "description": "List of detected drug promotions with associated Telegram channel information",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "content": {
+                                "type": "string",
+                                "description": prompts["analysis"]["post"]["content"]
+                            },
+                            "links": {
+                                "type": "array",
+                                "description": prompts["analysis"]["post"]["links"],
+                                "items": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "required": ["content", "links"]
+                    }
+                }
+            },
+            "required": ["drugs_related", "promotions"]
+        }
 
 logger = Logger(__name__)
 
@@ -48,6 +83,7 @@ class PostFields(StrEnum):
     description = "description"
     published_at = "published_at"
     discovered_at = "discovered_at"
+    updated_at = "updated_at"
 
 class Post(BaseMongoObject):
     title: str = Field(
@@ -99,6 +135,11 @@ class Post(BaseMongoObject):
         default_factory=datetime.now,
         title="Discovered Date",
         description="Date when the content was discovered",
+    )
+    updated_at: datetime | None = Field(
+        default_factory=datetime.now,
+        title="Updated Date",
+        description="Date when the content was last updated",
     )
 
     def __eq__(self, other):
