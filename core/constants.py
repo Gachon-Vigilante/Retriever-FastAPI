@@ -26,15 +26,29 @@ Raises:
 
 import os
 from datetime import timedelta
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-LOG_PATH = os.getenv("LOG_PATH", "logs/server.log")
+default_log_path = "logs/server.log"
+if not os.getenv("LOG_PATH"):
+    Path(os.path.dirname(default_log_path)).mkdir(parents=True, exist_ok=True)
+LOG_PATH = os.getenv("LOG_PATH", default_log_path)
 SQLALCHEMY_DATABASE_URL = "sqlite:///./teleprobe.db"
 
-TELEPROBE_TOKEN_TTL_DAYS = os.getenv("TELEPROBE_TOKEN_TTL_DAYS", 30)
-if not TELEPROBE_TOKEN_TTL_DAYS.isdigit():
+try:
+    TELEPROBE_TOKEN_TTL_DAYS = int(os.getenv("TELEPROBE_TOKEN_TTL_DAYS", 30))
+except ValueError:
     raise ValueError("environment variable `TELEPROBE_TOKEN_TTL_DAYS` must be a number")
 TELEPROBE_TOKEN_EXPIRATION = timedelta(days=int(TELEPROBE_TOKEN_TTL_DAYS)) # 토큰 생성 후 30일 후 만료
+
+TELEGRAM_LINK_PATTERN = r"(?i)(?:https?://)?t\.me/(?:s/|joinchat/)?([~+]?[a-zA-Z0-9_-]+)(?:/\d+)?"
+
+CRAWLER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/114.0.0.0 "
+                  "Safari/537.36"
+}

@@ -51,17 +51,13 @@ class ApiIdInvalidError(TelethonApiIdInvalidError):
     Exception class for invalid Telegram API ID
 
     Raised when API ID issued from Telegram developer portal is invalid or incorrect.
-    Inherits from Telethon's ApiIdInvalidError and provides additional message field.
-
-    Attributes:
-        message (str): 예외에 대한 상세 메시지
-                      Detailed message about the exception
+    Inherits from Telethon's ApiIdInvalidError and provides additional msg field.
 
     Examples:
         raise ApiIdInvalidError("제공된 API ID가 올바르지 않습니다.")
     """
-    def __init__(self, message: Optional[str] = None):
-        self.message = message or "API ID is invalid."
+    def __init__(self, msg: Optional[str] = None):
+        super().__init__(msg or "API ID is invalid.")
 
 class ApiHashInvalidError(Exception):
     """잘못된 Telegram API Hash에 대한 예외 클래스
@@ -74,15 +70,11 @@ class ApiHashInvalidError(Exception):
     Raised when API Hash issued from Telegram developer portal is invalid or incorrect.
     Used when it's not a 32-character hexadecimal string or doesn't match required format.
 
-    Attributes:
-        message (str): 예외에 대한 상세 메시지
-                      Detailed message about the exception
-
     Examples:
         raise ApiHashInvalidError("API Hash는 32자리 16진수 문자열이어야 합니다.")
     """
-    def __init__(self, message: Optional[str] = None):
-        self.message = message or "API Hash is invalid."
+    def __init__(self, msg: Optional[str] = None):
+        super().__init__(msg or "API Hash is invalid.")
 
 class UnknownInvitationTypeError(Exception):
     """알 수 없는 초대 타입에 대한 예외 클래스
@@ -95,15 +87,11 @@ class UnknownInvitationTypeError(Exception):
     Raised when unexpected invitation information type is returned during Telegram invite link processing.
     Used when receiving unknown types other than ChatInvite or ChatInviteAlready.
 
-    Attributes:
-        message (str): 예외에 대한 상세 메시지
-                      Detailed message about the exception
-
     Examples:
         raise UnknownInvitationTypeError(f"알 수 없는 초대 타입: {type(invite_info)}")
     """
-    def __init__(self, message: Optional[str] = None):
-        self.message = message or "Unknown invitation type."
+    def __init__(self, msg: Optional[str] = None):
+        super().__init__(msg or "Unknown invitation type.")
 
 class SessionStringInvalidError(Exception):
     """잘못된 세션 문자열에 대한 예외 클래스
@@ -116,15 +104,11 @@ class SessionStringInvalidError(Exception):
     Raised when Telethon client's session string is invalid or corrupted.
     Used when session string format is incorrect or cannot be decoded.
 
-    Attributes:
-        message (str): 예외에 대한 상세 메시지
-                      Detailed message about the exception
-
     Examples:
         raise SessionStringInvalidError("세션 문자열이 손상되었습니다.")
     """
-    def __init__(self, message: Optional[str] = None):
-        self.message = message or "Session string is invalid."
+    def __init__(self, msg: Optional[str] = None):
+        super().__init__(msg or "Session string is invalid.")
 
 class ChannelNotFoundError(Exception):
     """채널을 찾을 수 없는 경우에 대한 예외 클래스
@@ -137,15 +121,11 @@ class ChannelNotFoundError(Exception):
     Raised when channel cannot be found with specified channel ID or username.
     Used when channel doesn't exist or access permission is denied.
 
-    Attributes:
-        message (str): 예외에 대한 상세 메시지
-                      Detailed message about the exception
-
     Examples:
         raise ChannelNotFoundError("채널을 찾을 수 없습니다: @channelname")
     """
-    def __init__(self, message: Optional[str] = None):
-        self.message = message or "Channel not found."
+    def __init__(self, msg: Optional[str] = None):
+        super().__init__(msg or "Channel not found.")
 
 class UsernameNotFoundError(Exception):
     """사용자명을 찾을 수 없는 경우에 대한 예외 클래스
@@ -158,15 +138,11 @@ class UsernameNotFoundError(Exception):
     Raised when user or channel cannot be found with specified @username.
     Used when username doesn't exist or account is private.
 
-    Attributes:
-        message (str): 예외에 대한 상세 메시지
-                      Detailed message about the exception
-
     Examples:
         raise UsernameNotFoundError("사용자명을 찾을 수 없습니다: @username")
     """
-    def __init__(self, message: Optional[str] = None):
-        self.message = message or "Username not found."
+    def __init__(self, msg: Optional[str] = None):
+        super().__init__(msg or "Username not found.")
 
 class ChannelKeyInvalidError(Exception):
     """잘못된 채널 키에 대한 예외 클래스
@@ -179,15 +155,11 @@ class ChannelKeyInvalidError(Exception):
     Raised when key for identifying channel (channel ID, username, invite link) is invalid.
     Used when format is not supported or value is incorrect.
 
-    Attributes:
-        message (str): 예외에 대한 상세 메시지
-                      Detailed message about the exception
-
     Examples:
         raise ChannelKeyInvalidError("지원되지 않는 채널 키 형식입니다.")
     """
-    def __init__(self, message: Optional[str] = None):
-        self.message = message or "Channel key is invalid."
+    def __init__(self, msg: Optional[str] = None):
+        super().__init__(msg or "Channel key is invalid.")
 
 class ChannelNotWatchedError(Exception):
     """모니터링되지 않는 채널에 대한 예외 클래스
@@ -200,15 +172,11 @@ class ChannelNotWatchedError(Exception):
     Raised when trying to stop monitoring a channel that is not currently being monitored.
     Used when attempting to stop monitoring channel with no registered event handler.
 
-    Attributes:
-        message (str): 예외에 대한 상세 메시지
-                      Detailed message about the exception
-
     Examples:
         raise ChannelNotWatchedError("이 채널은 현재 모니터링되지 않습니다.")
     """
-    def __init__(self, message: Optional[str] = None):
-        self.message = message or "Channel is not being watched."
+    def __init__(self, msg: Optional[str] = None):
+        super().__init__(msg or "Channel is not being watched.")
 
 class ChannelAlreadyWatchedError(Exception):
     """이미 모니터링 중인 채널에 대한 예외 클래스
@@ -221,15 +189,11 @@ class ChannelAlreadyWatchedError(Exception):
     Raised when trying to start monitoring a channel that is already being monitored.
     Used to prevent duplicate monitoring.
 
-    Attributes:
-        message (str): 예외에 대한 상세 메시지
-                      Detailed message about the exception
-
     Examples:
         raise ChannelAlreadyWatchedError("이 채널은 이미 모니터링 중입니다.")
     """
-    def __init__(self, message: Optional[str] = None):
-        self.message = message or "Channel is already being watched."
+    def __init__(self, msg: Optional[str] = None):
+        super().__init__(msg or "Channel is already being watched.")
 
 class NotChannelError(Exception):
     """채널이 아닌 엔티티에 대한 예외 클래스
@@ -242,12 +206,8 @@ class NotChannelError(Exception):
     Raised when trying to perform channel-specific operations on non-channel entity.
     Used when attempting channel operations on users, groups, or other non-channel entities.
 
-    Attributes:
-        message (str): 예외에 대한 상세 메시지
-                      Detailed message about the exception
-
     Examples:
         raise NotChannelError("연결된 엔티티가 채널이 아닙니다.")
     """
-    def __init__(self, message: Optional[str] = None):
-        self.message = message or "Connected entity is not a channel."
+    def __init__(self, msg: Optional[str] = None):
+        super().__init__(msg or "Connected entity is not a channel.")

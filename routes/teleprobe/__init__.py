@@ -47,14 +47,12 @@ Dependencies:
 from fastapi import APIRouter
 
 import core.sqlite
-from . import (
-    auth,
-    channel,
-    message
-)
+from .auth import router as auth_router
+from .channel import router as channel_router
+from .message import router as message_router
 
-router = APIRouter(prefix="/teleprobe")
+router = APIRouter(prefix="/api/v1/teleprobe")
 
-router.include_router(auth.router)
-router.include_router(channel.router)
-router.include_router(message.router)
+router.include_router(auth_router)
+router.include_router(channel_router)
+router.include_router(message_router)

@@ -379,17 +379,18 @@ class Channel(BaseMongoObject):
 
     def store(self) -> None:
         channel_collection = MongoCollections().channels
-        existing_channel = channel_collection.find_one({"id": self.id})
-        if existing_channel and existing_channel.pop("_id", None):
-            if self == Channel(**existing_channel):
-                logger.debug(f"채널이 이미 수집되었고, 핵심 정보가 동일합니다. 채널 정보를 업데이트합니다. Channel ID: {self.id}")
-                MongoCollections().channels.update_one(
-                    {"id": self.id},
-                    {"$set": self.model_dump()}
-                )
-                return
+        with self._lock:
+            existing_channel = channel_collection.find_one({"id": self.id})
+            if existing_channel and existing_channel.pop("_id", None):
+                if self == Channel(**existing_channel):
+                    logger.debug(f"채널이 이미 수집되었고, 핵심 정보가 동일합니다. 채널 정보를 업데이트합니다. Channel ID: {self.id}")
+                    MongoCollections().channels.update_one(
+                        {"id": self.id},
+                        {"$set": self.model_dump()}
+                    )
+                    return
+                else:
+                    logger.info(f"채널이 이미 수집되었고, 핵심 정보가 업데이트되었습니다. 새로운 채널 정보를 저장합니다. Channel ID: {self.id}")
             else:
-                logger.info(f"채널이 이미 수집되었고, 핵심 정보가 업데이트되었습니다. 새로운 채널 정보를 저장합니다. Channel ID: {self.id}")
-        else:
-            logger.info(f"새로운 채널을 수집했습니다. Channel ID: {self.id}")
-        channel_collection.insert_one(self.model_dump())
+                logger.info(f"새로운 채널을 수집했습니다. Channel ID: {self.id}")
+            channel_collection.insert_one(self.model_dump())

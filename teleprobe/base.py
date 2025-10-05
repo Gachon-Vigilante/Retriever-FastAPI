@@ -327,7 +327,7 @@ class TeleprobeClient(
         except ValueError as e:
             if "Not a valid string" in str(e):
                 err = SessionStringInvalidError("Session string이 올바르지 않습니다.")
-                logger.error(err.message)
+                logger.error(err)
                 raise err
             else:
                 raise e
