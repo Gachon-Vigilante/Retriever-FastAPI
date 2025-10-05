@@ -1,0 +1,40 @@
+# coding: utf-8
+
+# 유틸 패키지
+dotenv
+pydantic>=2.0.0
+
+# fastapi 관련
+fastapi
+uvicorn[standard]
+
+# Telethon
+telethon
+
+# JSON 직렬화 지원
+python-dateutil
+
+# sqlite db 사용
+sqlalchemy
+aiosqlite
+
+# MongoDB 사용
+pymongo
+
+# 크롤링 기능
+requests
+aiohttp
+beautifulsoup4
+lxml # 더 빠르고 최적화된 HTLM 파싱
+
+# 텔레그램 관련 기능
+
+# Gemini AI
+langchain-google-genai
+google-genai
+
+# Task queue
+celery
+celery-types
+kombu
+flower

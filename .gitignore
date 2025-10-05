@@ -205,3 +205,11 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# uv
+#  refer to https://docs.astral.sh/uv/
+.venv/
+*.pyc
+uv.lock
+
+*.db
