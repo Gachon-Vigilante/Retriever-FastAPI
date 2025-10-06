@@ -69,8 +69,13 @@ class Channel(BaseMongoObject):
 
     updated_at: datetime = Field(
         title="발견 일시",
-        description="채널의 변경사항이 발견된 일시(최초 발견 포함)",
-        serialization_alias="discoveredAt",
+        description="채널의 변경사항이 마지막으로 발견된 일시(최초 발견 포함)",
+        examples=["2024-01-01T12:00:00Z"],
+        default_factory=datetime.now
+    )
+    checked_at: datetime = Field(
+        title="확인 일시",
+        description="채널의 변경사항을 마지막으로 확인한 일시(최초 발견 포함)",
         examples=["2024-01-01T12:00:00Z"],
         default_factory=datetime.now
     )
@@ -128,35 +133,30 @@ class Channel(BaseMongoObject):
         default=False,
         title="링크 보유 여부",
         description="공개 링크를 가지고 있는지 여부",
-        serialization_alias="hasLink"
     )
 
     has_geo: bool = Field(
         default=False,
         title="지역 정보 여부",
         description="지리적 위치 정보를 가지고 있는지 여부",
-        serialization_alias="hasGeo"
     )
 
     slowmode_enabled: bool = Field(
         default=False,
         title="슬로우 모드 여부",
         description="슬로우 모드가 활성화되어 있는지 여부",
-        serialization_alias="slowmodeEnabled"
     )
 
     call_active: bool = Field(
         default=False,
         title="음성채팅 활성 여부",
         description="음성채팅이 진행 중인지 여부",
-        serialization_alias="callActive"
     )
 
     call_not_empty: bool = Field(
         default=False,
         title="음성채팅 참여자 존재 여부",
         description="음성채팅에 참여자가 있는지 여부",
-        serialization_alias="callNotEmpty"
     )
 
     fake: bool = Field(
@@ -182,7 +182,6 @@ class Channel(BaseMongoObject):
         default=None,
         title="참여자 수",
         description="채널의 총 참여자(구독자) 수",
-        serialization_alias="participantsCount",
         ge=0
     )
 
@@ -191,7 +190,6 @@ class Channel(BaseMongoObject):
         default_factory=list,
         title="제한 사유",
         description="채널이 제한된 이유들",
-        serialization_alias="restrictionReason"
     )
 
     # === 추가 메타데이터 ===
@@ -220,7 +218,6 @@ class Channel(BaseMongoObject):
         default=None,
         title="마지막 메시지 일시",
         description="채널에서 마지막으로 게시된 메시지의 일시",
-        serialization_alias="lastMessageDate"
     )
 
     # === 검증 메서드들 ===
@@ -373,24 +370,25 @@ class Channel(BaseMongoObject):
         return (
                 self.id == other.id and
                 self.username == other.username and
-                self.title == other.title and
-                self.username == other.username
+                self.title == other.title
         )
 
     def store(self) -> None:
         channel_collection = MongoCollections().channels
-        with self._lock:
-            existing_channel = channel_collection.find_one({"id": self.id})
-            if existing_channel and existing_channel.pop("_id", None):
-                if self == Channel(**existing_channel):
-                    logger.debug(f"채널이 이미 수집되었고, 핵심 정보가 동일합니다. 채널 정보를 업데이트합니다. Channel ID: {self.id}")
-                    MongoCollections().channels.update_one(
-                        {"id": self.id},
-                        {"$set": self.model_dump()}
-                    )
-                    return
-                else:
-                    logger.info(f"채널이 이미 수집되었고, 핵심 정보가 업데이트되었습니다. 새로운 채널 정보를 저장합니다. Channel ID: {self.id}")
+        result = channel_collection.update_one(
+            {"id": self.id, "username": self.username, "title": self.title},
+            {"$set": {"checked_at": self.checked_at}},
+            upsert=True,
+        )
+        if result.matched_count == 0:
+            channel_collection.update_one(
+                {"id": self.id, "username": self.username, "title": self.title},
+                {"$set": self.model_dump()},
+                upsert=True,
+            )
+            if len(list(channel_collection.find({"id": self.id}))) > 1:
+                logger.info(f"채널이 이미 수집되었고, 핵심 정보가 업데이트되었습니다. 새로운 채널 정보를 저장합니다. Channel ID: {self.id}")
             else:
                 logger.info(f"새로운 채널을 수집했습니다. Channel ID: {self.id}")
-            channel_collection.insert_one(self.model_dump())
+        else:
+            logger.info(f"이미 존재하는 채널이 발견되었습니다. Channel ID: {self.id}")

@@ -145,19 +145,21 @@ class Post(BaseMongoObject):
     def __eq__(self, other):
         return self.link == other.link and self.text == other.text
 
-    def store(self) -> ObjectId | None:
+    def store(self) ->  None:
         post_collection = MongoCollections().posts
-        with self._lock:
-            existing_post = post_collection.find_one({"link": self.link})
-            if existing_post and existing_post.pop("_id", None):
-                logger.debug(f"이미 수집된 웹 게시글을 발견했습니다. "
-                             f"Post link: {self.link}")
-                return
-            # 요구사항: 판매글 여부가 확정되기 전에는 본문(text)을 저장하지 않음
-            doc = self.model_dump()
-            if 'text' in doc:
-                doc.pop('text')
-            return post_collection.insert_one(doc).inserted_id
+        result = post_collection.update_one(
+            filter={"link": self.link},
+            update={"$set": {}},
+            upsert=True,
+        )
+        if result.matched_count == 0:
+            post_collection.update_one(
+                filter={"link": self.link},
+                update={"$set": self.model_dump()},
+            )
+        else:
+            logger.debug(f"이미 수집된 웹 게시글을 발견했습니다. "
+                         f"Post link: {self.link}")
 
     @classmethod
     def from_mongo(cls, doc: dict) -> 'Post':

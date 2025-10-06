@@ -378,46 +378,6 @@ class Message(BaseMongoObject):
             entities=[],
         )
 
-    def __eq__(self, other):
-        """두 메시지 객체의 동등성을 검사하는 메서드
-
-        메시지 ID, 채팅 ID, 메시지 내용을 기준으로 두 메시지가 동일한지 판단합니다.
-        MongoDB에서 중복 저장을 방지하거나 메시지 비교 시 사용됩니다.
-
-        Method to check equality between two message objects
-
-        Determines if two messages are identical based on message ID, chat ID, and message content.
-        Used to prevent duplicate storage in MongoDB or when comparing messages.
-
-        Args:
-            other (Message): 비교할 다른 Message 객체
-                           Another Message object to compare with
-
-        Returns:
-            bool: 두 메시지가 동일하면 True, 다르면 False
-                 True if messages are identical, False otherwise
-
-        Examples:
-            message1 = Message(id=1, chat_id=100, message="Hello")
-            message2 = Message(id=1, chat_id=100, message="Hello")
-            message3 = Message(id=2, chat_id=100, message="Hello")
-
-            print(message1 == message2)  # True
-            print(message1 == message3)  # False
-
-        Note:
-            동등성 검사는 다음 3가지 속성을 모두 비교합니다:
-            - id: 메시지 고유 번호
-            - chat_id: 채팅방 ID
-            - message: 메시지 텍스트 내용
-
-            Equality check compares all three attributes:
-            - id: Unique message number
-            - chat_id: Chat room ID  
-            - message: Message text content
-        """
-        return self.id == other.id and self.chat_id == other.chat_id and self.message == other.message
-
     def store(self):
         """메시지를 MongoDB chats 컬렉션에 저장하는 메서드
 
@@ -462,12 +422,20 @@ class Message(BaseMongoObject):
             5. Insert new document directly if no existing document
         """
         chat_collection = MongoCollections().chats
-        with self._lock:
-            existing_message = chat_collection.find_one({"id": self.id, "chat_id": self.chat_id})
-            if existing_message and existing_message.pop("_id", None):
-                if self == Message(**existing_message):
-                    return
-                else:
-                    logger.debug(f"기존에 저장된 메세지 중 수정된 메세지가 발견되었습니다. "
-                                 f"Message ID: {self.id}, Chat|Channel ID: {self.chat_id}")
-            chat_collection.insert_one(self.model_dump())
+        # 메시지 먼저 업데이트
+        result = chat_collection.update_one(
+            filter={"id": self.id, "chat_id": self.chat_id},
+            update={"$set": {"message": self.message}},
+            upsert=True,
+        )
+        # 기존 문서가 없을 경우 다른 정보까지 삽입
+        if result.matched_count == 0:
+            chat_collection.update_one(
+                filter={"id": self.id, "chat_id": self.chat_id},
+                update={"$set": self.model_dump()},
+                upsert=True,
+            )
+        # 기존 문서가 있어서 수정되었을 경우
+        else:
+            logger.info(f"기존에 저장된 메세지 중 수정된 메세지가 발견되었습니다. "
+                        f"Message ID: {self.id}, Chat|Channel ID: {self.chat_id}")

@@ -73,7 +73,3 @@ class BaseMongoObject(BaseModel):
         exclude=True
     )
 
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        cls._lock = threading.Lock()  # 각 서브클래스마다 새로운 lock
-
