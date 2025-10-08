@@ -55,6 +55,10 @@ class JobCompletionResult(BaseModel):
         title="Completed Request Count",
         description="The number of requests that were completed successfully.",
     )
+    telegram_channel_keys: list[str] = Field(
+        default=[],
+        title="Telegram Channel Keys",
+    )
 
 
 class PostAnalyzer:
@@ -99,7 +103,6 @@ class PostAnalyzer:
                 "status": JobStatus.ACCEPTING_REQUESTS,
                 "file_size_bytes": 0,
                 "post_count": 0,
-                "post_ids": [],  # Store ObjectIds of registered posts
                 "result": None,
                 "created_at": datetime.now(),
                 "updated_at": datetime.now(),
@@ -113,7 +116,7 @@ class PostAnalyzer:
 
     def format(self, post: Post) -> list:
         instruction = (
-            "Return a strict JSON object with keys: drugs_related (boolean), promotions (array of objects with keys 'content' and 'links' (array of strings)). "
+            "Return a strict JSON object with keys: drugs_related (boolean), promotions (array of objects with keys 'content' and 'identifiers' (array of strings)). "
             "Do not include any text outside of the JSON."
         )
         return self.template + [
@@ -331,7 +334,6 @@ class PostAnalyzer:
         if not active_jobs:
             return None
 
-        job_statuses: list[dict[str, Any]] = []
         for job in active_jobs:
             try:
                 batch_info = self.client.batches.get(name=job["name"]) if job.get("name") else None
@@ -422,7 +424,7 @@ class PostAnalyzer:
                 logger.warning(f"Gemini batch 대기열에서 찾은 배치 작업에서 파일이 존재하지 않습니다. job id: {job.get('_id')}")
                 continue
 
-            # If batch job was created with a file, Results are in a file
+            # If a batch job was created with a file, Results are in a file
             result_file_name = batch_info.dest.file_name
             logger.info(f"배치 작업 이름: {job.get("name")}, 결과 파일 이름: {result_file_name} 다운로드 중...")
             file_content = self.client.files.download(file=result_file_name)
@@ -453,7 +455,7 @@ class PostAnalyzer:
                     }}
                 )
                 try:
-                    analysis_dict: dict = json.loads(analysis)
+                    analysis_dict = json.loads(analysis)
                     if not isinstance(analysis_dict, dict):
                         raise TypeError(f"Expected dict, got {type(analysis_dict)} instead.")
                 except Exception as e:

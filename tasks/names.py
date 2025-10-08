@@ -1,0 +1,6 @@
+ANALYSIS_TASK_NAME = "analysis"
+CRAWL_TASK_NAME = "crawl"
+POLL_GEMINI_TASK_NAME = "poll_gemini"
+SEARCH_TASK_NAME = "search"
+TELEGRAM_CHANNEL_TASK_NAME = "telegram.channel"
+TELEGRAM_MESSAGE_TASK_NAME = "telegram.message"
