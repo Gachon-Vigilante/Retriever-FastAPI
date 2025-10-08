@@ -1,14 +1,13 @@
 import asyncio
 
-from celery import shared_task, current_app
+from celery import shared_task
 
-from core.mongo.post import TelegramChannelIdentifierInfo, TelegramPromotion, Post
+from core.mongo.connections import MongoCollections
+from core.mongo.schemas import Post
 from genai.analyzers.post import PostAnalyzer
 from utils import Logger
-from core.mongo.connections import MongoCollections
-
-from ..names import POLL_GEMINI_TASK_NAME
 from .telegram import telegram_channel_task
+from ..names import POLL_GEMINI_TASK_NAME  # ANALYSIS_TASK_NAME 사용
 
 logger = Logger(__name__)
 
@@ -16,10 +15,15 @@ logger = Logger(__name__)
 def poll_gemini_batches_task():
     async def _run():
         async with PostAnalyzer() as analyzer:
+            # 새로운 요청이 들어오지 않을 경우, accepting_request 상태의 작업을 pending 상태로 전환
+            await analyzer.flip_idle_accepting_job_to_pending()
+            # pending 상태의 모든 작업을 전부 제출
+            await analyzer.submit_batch()
+            # 제출된 작업들 중 Gemini가 완료한 작업을 확인하고 반영
             await analyzer.check_batch_status()
+            # 제출된 작업들 중 Gemini가 완료한 분석 결과 작업을 확인하고 반영
             await analyzer.complete_jobs()
         await invoke_telegram_task()
-
 
     loop = None
     try:
@@ -44,5 +48,4 @@ async def invoke_telegram_task():
                     post_id,
                     f"analysis.promotions.{promotion_idx}.identifiers.{identifier_idx}",
                 )
-
-
+                
