@@ -38,11 +38,23 @@ if not os.getenv("LOG_PATH"):
 LOG_PATH = os.getenv("LOG_PATH", default_log_path)
 SQLALCHEMY_DATABASE_URL = "sqlite:///./teleprobe.db"
 
+TELEPROBE_TOKEN_TTL_DAYS: int | None
+TELEPROBE_TOKEN_EXPIRATION: timedelta | None
 try:
-    TELEPROBE_TOKEN_TTL_DAYS = int(os.getenv("TELEPROBE_TOKEN_TTL_DAYS", 30))
+    if (ttl_days := os.getenv("TELEPROBE_TOKEN_TTL_DAYS", 30)) is not None:
+        TELEPROBE_TOKEN_TTL_DAYS = int(ttl_days)
+        TELEPROBE_TOKEN_EXPIRATION = timedelta(days=int(TELEPROBE_TOKEN_TTL_DAYS)) # 토큰 생성 후 30일 후 만료
 except ValueError:
     raise ValueError("environment variable `TELEPROBE_TOKEN_TTL_DAYS` must be a number")
-TELEPROBE_TOKEN_EXPIRATION = timedelta(days=int(TELEPROBE_TOKEN_TTL_DAYS)) # 토큰 생성 후 30일 후 만료
+
+TELEGRAM_API_ID: int | None = None
+try:
+    if (api_id:= os.getenv("TELEGRAM_API_ID")) is not None:
+        TELEGRAM_API_ID = int(api_id)
+except ValueError:
+    raise ValueError("environment variable `TELEGRAM_API_ID` must be a number")
+TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH")
+TELEGRAM_SESSION_STRING = os.getenv("TELEGRAM_SESSION_STRING")
 
 TELEGRAM_LINK_PATTERN = r"(?i)(?:https?://)?t\.me/(?:s/|joinchat/)?([~+]?[a-zA-Z0-9_-]+)(?:/\d+)?"
 

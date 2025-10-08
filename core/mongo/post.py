@@ -1,13 +1,41 @@
+"""Post model and MongoDB operations for web page content."""
+
 from enum import StrEnum
+from typing import Any, Self
+
+import pymongo
 from bson import ObjectId
 from pydantic import Field, BaseModel
 from datetime import datetime
+
+from pymongo.errors import DuplicateKeyError
 
 from utils import Logger
 from genai.models import prompts
 
 from .base import BaseMongoObject
 from .connections import MongoCollections
+
+class TelegramChannelIdentifierInfo(BaseModel):
+    identifier: str = Field(
+        title="Telegram Channel identifier",
+        description="Telegram channel link, username or ID"
+    )
+    channel_id: int | None = Field(
+        default=None,
+        title="Telegram Channel ID",
+        description="Telegram channel ID"
+    )
+    is_processed: bool = Field(
+        default=False,
+        title="Telegram Channel identifier processed",
+        description="Whether the Telegram channel identifier has been processed or not."
+    )
+    error: str | None = Field(
+        default=None,
+        title="Telegram Channel identifier error",
+        description="Error message if processing failed."
+    )
 
 
 class TelegramPromotion(BaseModel):
@@ -16,10 +44,10 @@ class TelegramPromotion(BaseModel):
         title="Promotion Content",
         description="Drugs promotions content detected in the post.",
     )
-    links: list[str] = Field(
+    identifiers: list[TelegramChannelIdentifierInfo] = Field(
         default_factory=list,
-        title="Telegram Links",
-        description="List of detected telegram links from content."
+        title="Telegram Channel Identifiers",
+        description="List of Telegram channel identifiers associated with the promotion content."
     )
 
 class PostAnalysisResult(BaseModel):
@@ -54,15 +82,21 @@ class PostAnalysisResult(BaseModel):
                                 "type": "string",
                                 "description": prompts["analysis"]["post"]["content"]
                             },
-                            "links": {
+                            "identifiers": {
                                 "type": "array",
-                                "description": prompts["analysis"]["post"]["links"],
+                                "description": "List of Telegram channel identifiers associated with the promotion content.",
                                 "items": {
-                                    "type": "string"
+                                    "type": "object",
+                                    "properties": {
+                                        "identifier": {
+                                            "type": "string",
+                                            "description": prompts["analysis"]["post"]["links"],
+                                        },
+                                    }
                                 }
                             }
                         },
-                        "required": ["content", "links"]
+                        "required": ["content", "identifiers"]
                     }
                 }
             },
@@ -145,22 +179,41 @@ class Post(BaseMongoObject):
     def __eq__(self, other):
         return self.link == other.link and self.text == other.text
 
-    def store(self) ->  None:
+    def store(self) -> ObjectId | None:
         post_collection = MongoCollections().posts
-        result = post_collection.update_one(
-            filter={"link": self.link},
-            update={"$set": {}},
-            upsert=True,
-        )
-        if result.matched_count == 0:
-            post_collection.update_one(
+        try:
+            result = post_collection.update_one(
                 filter={"link": self.link},
-                update={"$set": self.model_dump()},
+                update={"$setOnInsert": self.model_dump()}, # 같은 link를 가지는 값이 없을 때에만 값 추가
+                upsert=True,
             )
-        else:
-            logger.debug(f"이미 수집된 웹 게시글을 발견했습니다. "
-                         f"Post link: {self.link}")
+            if result.upserted_id:
+                logger.info(f"새로운 웹 게시글을 추가했습니다. "
+                            f"Post link: {self.link}")
+            else:
+                logger.info(f"이미 존재하는 게시글이 발견되었습니다. "
+                            f"Post link: {self.link}")
+            return result.upserted_id
+        except DuplicateKeyError:
+            logger.info(f"게시글 정보의 동시 입력이 감지되었습니다. Post link: {self.link}")
+            return None
 
     @classmethod
-    def from_mongo(cls, doc: dict) -> 'Post':
-        return cls(**{k: v for k, v in doc.items() if k != "_id"})
+    def model_validate_dict(
+        cls,
+        obj: dict,
+        *,
+        strict: bool | None = None,
+        from_attributes: bool | None = None,
+        context: Any | None = None,
+        by_alias: bool | None = None,
+        by_name: bool | None = None,
+    ) -> Self:
+        temp_post = cls.from_mongo(obj)
+        temp_post.title = temp_post.link = temp_post.domain = ""
+        return Post.model_validate(temp_post.model_dump(), strict=strict, from_attributes=from_attributes, context=context, by_alias=by_alias, by_name=by_name)
+
+
+    @classmethod
+    def from_mongo(cls, doc: dict) -> Self:
+        return Post.model_validate({k: v for k, v in doc.items() if k != "_id"})

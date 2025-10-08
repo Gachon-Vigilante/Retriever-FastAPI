@@ -17,6 +17,7 @@ from functools import lru_cache
 
 import pymongo
 from dotenv import load_dotenv
+from pymongo.errors import CollectionInvalid
 
 from utils import Logger
 
@@ -24,6 +25,8 @@ from utils import Logger
 logger = Logger(__name__)
 
 load_dotenv()
+
+db_name = os.getenv('MONGO_DB_NAME')
 
 class MongoCollections:
     """MongoDB 컬렉션들을 중앙 관리하는 클래스
@@ -75,7 +78,6 @@ class MongoCollections:
         """
         if db and not isinstance(db, pymongo.database.Database):
             raise TypeError("Database object must be provided with pymongo.database.Database type.")
-        db_name = os.getenv('MONGO_DB_NAME')
         if not db and not db_name:
             raise EnvironmentError("To use default MongoDB instance, MONGO_DB_NAME environment variable must be set.")
         self.db = db or mongo_client()[db_name]
@@ -205,3 +207,24 @@ def mongo_client():
             return None
 
     return _mongo_client
+
+try:
+    default_db = mongo_client()[db_name]
+    default_db.create_collection(MongoCollections.channels.__name__)
+    default_db.create_collection(MongoCollections.chats.__name__)
+    default_db.create_collection(MongoCollections.posts.__name__)
+    default_db.create_collection(MongoCollections.analysis_jobs.__name__)
+except CollectionInvalid:
+    pass
+
+MongoCollections().channels.create_index([
+    ("id", 1),
+    ("username", 1),
+    ("title", 1)
+], unique=True)
+
+MongoCollections().chats.create_index([
+    ("id", 1),
+    ("chat_id", 1),
+    ("edit_date", 1),
+], unique=True)

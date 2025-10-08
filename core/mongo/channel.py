@@ -3,6 +3,8 @@ from datetime import datetime
 from typing import Optional, List, Any
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pymongo.errors import DuplicateKeyError
+from pymongo import ReturnDocument
 from telethon.tl.types import Channel as TelethonChannel
 
 from utils import Logger
@@ -220,6 +222,12 @@ class Channel(BaseMongoObject):
         description="채널에서 마지막으로 게시된 메시지의 일시",
     )
 
+    monitoring: bool = Field(
+        default=False,
+        title="모니터링 여부",
+        description="채널을 모니터링하고 있는지 여부"
+    )
+
     # === 검증 메서드들 ===
     @classmethod
     @field_validator('username')
@@ -366,29 +374,23 @@ class Channel(BaseMongoObject):
         }
     )
 
-    def __eq__(self, other):
-        return (
-                self.id == other.id and
-                self.username == other.username and
-                self.title == other.title
-        )
-
     def store(self) -> None:
         channel_collection = MongoCollections().channels
-        result = channel_collection.update_one(
-            {"id": self.id, "username": self.username, "title": self.title},
-            {"$set": {"checked_at": self.checked_at}},
-            upsert=True,
-        )
-        if result.matched_count == 0:
-            channel_collection.update_one(
+        try:
+            result = channel_collection.find_one_and_update(
                 {"id": self.id, "username": self.username, "title": self.title},
-                {"$set": self.model_dump()},
+                {
+                    "$set": self.model_dump(),
+                },
+                sort=[("checked_at", -1)],
                 upsert=True,
+                return_document=ReturnDocument.BEFORE
             )
-            if len(list(channel_collection.find({"id": self.id}))) > 1:
-                logger.info(f"채널이 이미 수집되었고, 핵심 정보가 업데이트되었습니다. 새로운 채널 정보를 저장합니다. Channel ID: {self.id}")
+            if result:
+                logger.info(f"이미 존재하는 채널이 발견되었습니다. 채널 정보를 업데이트합니다. Channel ID: {self.id}")
             else:
-                logger.info(f"새로운 채널을 수집했습니다. Channel ID: {self.id}")
-        else:
-            logger.info(f"이미 존재하는 채널이 발견되었습니다. Channel ID: {self.id}")
+                logger.info(f"새로운 채널, 또는 핵심 정보가 변경된 채널을 수집하여 새 아카이브를 생성했습니다. "
+                            f"Channel ID: {self.id}, username: {self.username}, title: {self.title}")
+
+        except DuplicateKeyError:
+            logger.info(f"채널 정보의 동시 생성이 감지되었습니다. Channel ID: {self.id}")

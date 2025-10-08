@@ -14,7 +14,9 @@ data validation, serialization, and MongoDB storage functionality.
 from datetime import datetime
 from typing import Optional, Any
 
+import pymongo
 from pydantic import Field, ConfigDict
+from pymongo.errors import DuplicateKeyError
 from telethon.tl.types import Message as TelethonMessage
 
 from utils import Logger
@@ -46,7 +48,7 @@ class Message(BaseMongoObject):
                                Text content of the message (max 4096 characters)
         date (datetime): 메시지가 전송된 시간
                         Time when the message was sent
-        collected_at (datetime): 메시지를 수집한 시각
+        updated_at (datetime): 메시지를 수집한 시각
                                Time when the message was collected
         from_id (Optional[int]): 메시지를 보낸 사용자 또는 채널의 ID
                                ID of the user or channel that sent the message
@@ -71,7 +73,7 @@ class Message(BaseMongoObject):
         media (Any): 첨부된 미디어 파일 정보
                     Attached media file information
         entities (Any): 메시지 내 특수 요소들 (링크, 멘션, 포맷팅 등)
-                       Special elements in message (links, mentions, formatting, etc.)
+                       Special elements in message (identifiers, mentions, formatting, etc.)
         edit_date (Optional[datetime]): 메시지가 마지막으로 편집된 시간
                                       Time when message was last edited
         edit_hide (bool): 편집 표시를 숨길지 여부
@@ -134,7 +136,7 @@ class Message(BaseMongoObject):
     )
 
     # === 커스텀 정보 ===
-    collected_at: datetime = Field(
+    updated_at: datetime = Field(
         default_factory=datetime.now,
         title="수집 시각",
         description="채팅을 발견하고 수집한 시각"
@@ -422,20 +424,17 @@ class Message(BaseMongoObject):
             5. Insert new document directly if no existing document
         """
         chat_collection = MongoCollections().chats
-        # 메시지 먼저 업데이트
-        result = chat_collection.update_one(
-            filter={"id": self.id, "chat_id": self.chat_id},
-            update={"$set": {"message": self.message}},
-            upsert=True,
-        )
-        # 기존 문서가 없을 경우 다른 정보까지 삽입
-        if result.matched_count == 0:
-            chat_collection.update_one(
-                filter={"id": self.id, "chat_id": self.chat_id},
-                update={"$set": self.model_dump()},
+        try:
+            result = chat_collection.find_one_and_update(
+                filter={"id": self.id, "chat_id": self.chat_id, "message": self.message},
+                update={"$set": {}},
+                sort=[("updated_at", pymongo.DESCENDING)],
                 upsert=True,
+                return_document=pymongo.ReturnDocument.BEFORE,
             )
-        # 기존 문서가 있어서 수정되었을 경우
-        else:
-            logger.info(f"기존에 저장된 메세지 중 수정된 메세지가 발견되었습니다. "
-                        f"Message ID: {self.id}, Chat|Channel ID: {self.chat_id}")
+
+            if result:
+                logger.info(f"기존에 저장된 메세지 중 수정된 메세지가 발견되었습니다. "
+                            f"Message ID: {self.id}, Chat|Channel ID: {self.chat_id}")
+        except DuplicateKeyError:
+            logger.info(f"메시지 정보의 동시 입력이 감지되었습니다. Channel ID: {self.id}, Chat|Channel ID: {self.chat_id}")
