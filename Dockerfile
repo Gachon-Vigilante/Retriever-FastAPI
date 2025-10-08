@@ -13,13 +13,15 @@ RUN apt-get update && apt-get install -y \
 RUN pip install uv
 
 # 프로젝트 파일 복사
-COPY pyproject.toml uv.lock* ./
+COPY pyproject.toml ./
+COPY uv.lock ./
+
 
 # 의존성 설치 (uv 사용)
-RUN uv pip install --system -r pyproject.toml
+RUN uv sync --frozen --no-dev
 
 # 애플리케이션 코드 복사
 COPY . .
 
 # 기본 명령어 (docker-compose.yml에서 오버라이드됨)
-CMD ["python", "main.py"]
+CMD ["uv", "run", "python", "main.py"]
