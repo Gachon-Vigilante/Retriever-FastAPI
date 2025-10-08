@@ -26,6 +26,10 @@ from .types import SenderType
 
 logger = Logger(__name__)
 
+protected_fields = [
+    "updated_at"
+]
+
 class Message(BaseMongoObject):
     """텔레그램 메시지를 나타내는 MongoDB 문서 모델 (Telethon Message 기반)
 
@@ -379,10 +383,6 @@ class Message(BaseMongoObject):
             media=None,
             entities=[],
         )
-
-    protected_fields = [
-        "updated_at"
-    ]
 
     def model_dump_only_insert(self):
         return {k: v for k, v in self.model_dump().items() if k in self.protected_fields}

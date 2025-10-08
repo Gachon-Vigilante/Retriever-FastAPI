@@ -3,24 +3,21 @@ import os
 from urllib.parse import urljoin
 
 import requests
-
 from celery import shared_task
 
 from core.constants import TELEGRAM_API_ID, TELEGRAM_API_HASH, TELEGRAM_SESSION_STRING
 from core.mongo.connections import MongoCollections
+from handlers import ChannelHandler, MessageHandler
 from teleprobe import TeleprobeClient
 from teleprobe.errors import ACCEPTABLE_EXCEPTIONS
-from handlers import ChannelHandler, MessageHandler
-
 from utils import Logger
-
-from ..names import TELEGRAM_CHANNEL_TASK_NAME, TELEGRAM_MESSAGE_TASK_NAME
+from ..names import TELEGRAM_CHANNEL_TASK_NAME
 
 logger = Logger(__name__)
 
 
 @shared_task(name=TELEGRAM_CHANNEL_TASK_NAME)
-def telegram_channel_task(channel_identifier: str, post_id: str | None = None, mongo_key: str | None = None):
+def telegram_channel_task(channel_identifier: str, post_id: str | None = None, mongo_field: str | None = None):
     logger.info(f"Collecting telegram channel key: {channel_identifier}")
 
     async def _run():
@@ -35,10 +32,10 @@ def telegram_channel_task(channel_identifier: str, post_id: str | None = None, m
                 logger.info(f"채널 정보 수집 및 모니터링을 시도합니다. channel key: {channel_identifier}")
                 channel = await client.get_channel(channel_identifier, ChannelHandler()) # 채널 정보 수집 후 저장
                 logger.info(f"채널 정보를 수집(또는 업데이트)했습니다. channel key: {channel_identifier}")
-                if post_id and mongo_key:
+                if post_id and mongo_field:
                     post_collection.update_one(
                         {"_id": post_id},
-                        {"$set": {mongo_key: {"channel_id": channel.id}}}
+                        {"$set": {mongo_field: {"channel_id": channel.id}}}
                     )
 
                 response = requests.post(
@@ -55,21 +52,21 @@ def telegram_channel_task(channel_identifier: str, post_id: str | None = None, m
                     pass
                 logger.info(f"채널 내의 모든 메세지를 수집하고 DB에 저장했습니다: {channel_identifier}")
 
-                if post_id and mongo_key:
+                if post_id and mongo_field:
                     post_collection.update_one(
                         {"_id": post_id},
-                        {"$set": {mongo_key: {"is_processed": True}}}
+                        {"$set": {mongo_field: {"is_processed": True}}}
                     )
 
         except Exception as e:
             if type(e) in ACCEPTABLE_EXCEPTIONS: # 예상되는 에러
                 logger.error(f"예상된 오류 발생: {type(e).__name__}: {str(e)}")
 
-                if post_id and mongo_key:
+                if post_id and mongo_field:
                     post_collection.update_one(
                         {"_id": post_id},
                         {"$set": {
-                            mongo_key: {
+                            mongo_field: {
                                 "is_processed": True,
                                 "error": f"{type(e).__name__}: {str(e)}"
                             }

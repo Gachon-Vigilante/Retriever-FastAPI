@@ -16,6 +16,10 @@ from .base import BaseMongoObject
 
 logger = Logger(__name__)
 
+protected_fields = [
+    "updated_at", "last_message_date", "monitoring", "status"
+]
+
 class ChannelRestrictionReason(BaseModel):
     """채널 제한 사유"""
     platform: str = Field(description="플랫폼 (ios, android, web 등)")
@@ -373,10 +377,6 @@ class Channel(BaseMongoObject):
             }
         }
     )
-
-    protected_fields = [
-        "updated_at", "last_message_date", "monitoring", "status"
-    ]
 
     def model_dump_only_insert(self):
         return {k: v for k, v in self.model_dump().items() if k in self.protected_fields}
