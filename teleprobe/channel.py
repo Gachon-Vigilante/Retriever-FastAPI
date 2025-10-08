@@ -78,7 +78,7 @@ class ChannelMethods:
             self:'TeleprobeClient',
             channel_key: Union[int, str],
             handler: Optional[Callable[[TelethonChannel], Coroutine[Any, Any, None]]] = None
-    ) -> Optional[TelethonChannel]:
+    ) -> TelethonChannel:
         """채널을 조회하고 선택적으로 핸들러를 실행하는 비동기 메서드
 
         제공된 채널 키를 사용하여 채널을 조회하고, 핸들러가 제공된 경우 실행합니다.
@@ -122,7 +122,7 @@ class ChannelMethods:
             초대 링크나 새로운 채널의 경우 자동으로 참여가 이루어집니다.
 
             This method internally uses connect_channel to connect to the channel,
-            so automatic joining occurs for invite links or new channels.
+            so automatic joining occurs for invite identifiers or new channels.
         """
         await self.ensure_connected()
 
@@ -136,7 +136,7 @@ class ChannelMethods:
     async def watch(
             self: 'TeleprobeClient',
             channel_key: Union[int, str],
-            handler: Optional[Callable[[Any], Coroutine[Any, Any, None]]] = None
+            message_handler: Optional[Callable[[Any], Coroutine[Any, Any, None]]] = None
     ):
         """
         Watches a specified channel for new messages and assigns an event handler to process the
@@ -145,7 +145,7 @@ class ChannelMethods:
         Parameters:
             channel_key (Union[int, str]): The unique identifier of the channel to monitor. It can
                 either be an integer or a string.
-            handler (Optional[Callable[[None], Coroutine[Any, Any, None]]]): An optional asynchronous
+            message_handler (Optional[Callable[[None], Coroutine[Any, Any, None]]]): An optional asynchronous
                 callback that processes new messages from the specified channel.
 
         Raises:
@@ -164,10 +164,10 @@ class ChannelMethods:
                     raise err
 
                 self.client.add_event_handler(
-                    callback=handler,
+                    callback=message_handler,
                     event=NewMessage(chats=channel.id)
                 )
-                self._event_handlers[channel.id] = handler
+                self._event_handlers[channel.id] = message_handler
                 logger.info(f"채널 모니터링을 시작했습니다. "
                             f"Channel ID: {channel.id}, title: {channel.title}, username: @{channel.username}")
         else:

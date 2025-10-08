@@ -39,6 +39,7 @@ __all__ = [
     'ChannelNotWatchedError',
     'ChannelAlreadyWatchedError',
     'NotChannelError',
+    'ACCEPTABLE_EXCEPTIONS',
 ]
 
 
@@ -211,3 +212,21 @@ class NotChannelError(Exception):
     """
     def __init__(self, msg: Optional[str] = None):
         super().__init__(msg or "Connected entity is not a channel.")
+
+
+ACCEPTABLE_EXCEPTIONS = (
+    InviteHashEmptyError,
+    InviteHashExpiredError,
+    InviteHashInvalidError,
+    ChannelInvalidError,
+    ChannelPrivateError,
+    FloodWaitError,
+    ApiIdInvalidError,
+    ApiHashInvalidError,
+    UnknownInvitationTypeError,
+    SessionStringInvalidError,
+    ChannelNotFoundError,
+    UsernameNotFoundError,
+    ChannelKeyInvalidError,
+    NotChannelError,
+)
