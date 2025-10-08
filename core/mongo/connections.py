@@ -148,7 +148,7 @@ class MongoCollections:
 _mongo_client: Optional[pymongo.MongoClient] = None
 
 @lru_cache(maxsize=1)
-def mongo_client():
+def mongo_client() -> Optional[pymongo.MongoClient]:
     """MongoDB 클라이언트를 지연 생성하고 캐시하는 함수
 
     환경 변수에서 연결 문자열을 읽어 MongoDB 클라이언트를 생성합니다.
@@ -208,14 +208,18 @@ def mongo_client():
 
     return _mongo_client
 
-try:
-    default_db = mongo_client()[db_name]
-    default_db.create_collection(MongoCollections.channels.__name__)
-    default_db.create_collection(MongoCollections.chats.__name__)
-    default_db.create_collection(MongoCollections.posts.__name__)
-    default_db.create_collection(MongoCollections.analysis_jobs.__name__)
-except CollectionInvalid:
-    pass
+default_db = mongo_client()[db_name]
+collection_names = [
+    MongoCollections.channels.__name__,
+    MongoCollections.chats.__name__,
+    MongoCollections.posts.__name__,
+    MongoCollections.analysis_jobs.__name__,
+]
+for collection_name in collection_names:
+    try:
+        default_db.create_collection(collection_name)
+    except CollectionInvalid:
+        pass
 
 MongoCollections().channels.create_index([
     ("id", 1),
@@ -228,3 +232,25 @@ MongoCollections().chats.create_index([
     ("chat_id", 1),
     ("edit_date", 1),
 ], unique=True)
+
+MongoCollections().analysis_jobs.create_index(
+    [("status", 1)],
+    unique=True,
+    partialFilterExpression={"status": "accepting_request"}
+)
+
+MongoCollections().analysis_jobs.create_index(
+    [("post_ids", 1)],
+    unique=True, # 유일성을 보장한다.
+    partialFilterExpression={ # 하지만 아래 조건을 만족하는 문서에만 적용한다.
+        "status": {
+            "$in": [
+                "accepting_request",
+                "pending",
+                "submitted",
+                "processed"
+                # FAILED와 COMPLETED 상태는 여기서 제외
+            ]
+        }
+    }
+)

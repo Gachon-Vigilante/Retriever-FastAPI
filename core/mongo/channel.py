@@ -374,14 +374,23 @@ class Channel(BaseMongoObject):
         }
     )
 
+    protected_fields = [
+        "updated_at", "last_message_date", "monitoring", "status"
+    ]
+
+    def model_dump_only_insert(self):
+        return {k: v for k, v in self.model_dump().items() if k in self.protected_fields}
+
+    def model_dump_only_update(self):
+        return {k: v for k, v in self.model_dump().items() if k not in self.protected_fields}
+
     def store(self) -> None:
         channel_collection = MongoCollections().channels
         try:
             result = channel_collection.find_one_and_update(
                 {"id": self.id, "username": self.username, "title": self.title},
-                {
-                    "$set": self.model_dump(),
-                },
+                {"$set": self.model_dump_only_update(),
+                 "$setOnInsert": self.model_dump_only_insert(),},
                 sort=[("checked_at", -1)],
                 upsert=True,
                 return_document=ReturnDocument.BEFORE

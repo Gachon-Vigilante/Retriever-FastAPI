@@ -380,6 +380,16 @@ class Message(BaseMongoObject):
             entities=[],
         )
 
+    protected_fields = [
+        "updated_at"
+    ]
+
+    def model_dump_only_insert(self):
+        return {k: v for k, v in self.model_dump().items() if k in self.protected_fields}
+
+    def model_dump_only_update(self):
+        return {k: v for k, v in self.model_dump().items() if k not in self.protected_fields}
+
     def store(self):
         """메시지를 MongoDB chats 컬렉션에 저장하는 메서드
 
@@ -427,7 +437,8 @@ class Message(BaseMongoObject):
         try:
             result = chat_collection.find_one_and_update(
                 filter={"id": self.id, "chat_id": self.chat_id, "message": self.message},
-                update={"$set": {}},
+                update={"$set": self.model_dump_only_update(),
+                        "$setOnInsert": self.model_dump_only_insert()},
                 sort=[("updated_at", pymongo.DESCENDING)],
                 upsert=True,
                 return_document=pymongo.ReturnDocument.BEFORE,
