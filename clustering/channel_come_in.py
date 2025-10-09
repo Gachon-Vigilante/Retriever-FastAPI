@@ -2,12 +2,13 @@ import torch
 from sklearn.metrics.pairwise import cosine_similarity
 from transformers import AutoTokenizer, AutoModel
 
-from server.db import Database
+from core.mongo.connections import MongoCollections
 
 # MongoDB 연결
-collection = Database.Collection.Channel.DATA
-similarity_collection = Database.Collection.Channel.SIMILARITY
-drug_collection = Database.Collection.DRUGS
+mongo = MongoCollections()
+collection = mongo.channel_data
+similarity_collection = mongo.channel_similarity
+drug_collection = mongo.drugs
 
 # KoBERT 모델 로딩
 model_name = "monologg/kobert"
@@ -112,4 +113,3 @@ def calculate_similarity_for_new_channels():
         })
 
     return {"message": f"Similarity calculation complete for {len(new_channel_ids)} new channels."}
-

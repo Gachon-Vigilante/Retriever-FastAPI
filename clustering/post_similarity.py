@@ -6,14 +6,17 @@ from bs4 import BeautifulSoup
 import numpy as np
 from collections import Counter
 from pymongo import UpdateOne
-from server.db import Database
-from server.cypher import run_cypher, Neo4j
-from server.logger import logger
+from core.mongo.connections import MongoCollections
+# from server.cypher import run_cypher, Neo4j # Neo4j 관련 코드는 주석 처리
+from utils import Logger
 from .newpost_similarity import insert_post_similarity
 
 # MongoDB 컬렉션
-collection = Database.Collection.POST
-channel_collection = Database.Collection.Channel.INFO
+mongo = MongoCollections()
+collection = mongo.posts
+channel_collection = mongo.channel_info
+
+logger = Logger(__name__)
 
 # Ko-SBERT 모델 로드
 try:
@@ -131,24 +134,24 @@ def similarity(threshold=0.7):
                 "similarity": float(score)
             })
 
-            if score >= threshold and doc["link"] < other_doc["link"]:
-                run_cypher(Neo4j.QueryTemplate.Node.Post.MERGE, {
-                    "link": doc["link"],
-                    "siteName": doc.get("source") or doc.get("siteName"),
-                    "content": doc.get("content"),
-                    "createdAt": doc.get("createdAt"),
-                    "updatedAt": doc.get("updatedAt"),
-                    "deleted": doc.get("deleted")
-                })
-                run_cypher(Neo4j.QueryTemplate.Node.Post.MERGE, {
-                    "link": other_doc["link"],
-                    "siteName": other_doc.get("source") or other_doc.get("siteName"),
-                    "content": other_doc.get("content"),
-                    "createdAt": other_doc.get("createdAt"),
-                    "updatedAt": other_doc.get("updatedAt"),
-                    "deleted": other_doc.get("deleted")
-                })
-                insert_post_similarity(doc["link"], other_doc["link"], score)
+            # if score >= threshold and doc["link"] < other_doc["link"]:
+            #     run_cypher(Neo4j.QueryTemplate.Node.Post.MERGE, {
+            #         "link": doc["link"],
+            #         "siteName": doc.get("source") or doc.get("siteName"),
+            #         "content": doc.get("content"),
+            #         "createdAt": doc.get("createdAt"),
+            #         "updatedAt": doc.get("updatedAt"),
+            #         "deleted": doc.get("deleted")
+            #     })
+            #     run_cypher(Neo4j.QueryTemplate.Node.Post.MERGE, {
+            #         "link": other_doc["link"],
+            #         "siteName": other_doc.get("source") or other_doc.get("siteName"),
+            #         "content": other_doc.get("content"),
+            #         "createdAt": other_doc.get("createdAt"),
+            #         "updatedAt": other_doc.get("updatedAt"),
+            #         "deleted": other_doc.get("deleted")
+            #     })
+            #     insert_post_similarity(doc["link"], other_doc["link"], score)
 
         bulk_ops.append(UpdateOne(
             {"_id": doc["_id"]},
@@ -158,7 +161,7 @@ def similarity(threshold=0.7):
     if bulk_ops:
         collection.bulk_write(bulk_ops)
 
-    return {"message": "Similarity calculations completed and stored in MongoDB & Neo4j."}
+    return {"message": "Similarity calculations completed and stored in MongoDB."}
 
 
 # -------------------- 3개의 임베딩 벡터 -----------

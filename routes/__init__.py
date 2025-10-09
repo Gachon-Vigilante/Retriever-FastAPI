@@ -29,7 +29,9 @@ Examples:
 from fastapi import APIRouter
 
 from . import teleprobe
+from . import clustering
 
 root_router = APIRouter(prefix="")
 
 root_router.include_router(teleprobe.router)
+root_router.include_router(clustering.router)

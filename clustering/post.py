@@ -3,9 +3,9 @@ import numpy as np
 import hdbscan
 from sklearn.metrics.pairwise import cosine_similarity,euclidean_distances
 from collections import Counter
-from server.db import Database
-from server.cypher import run_cypher
-from server.logger import logger
+from core.mongo.connections import MongoCollections
+# from server.cypher import run_cypher # Neo4j 관련 코드는 주석 처리
+from utils import Logger
 from pymongo import UpdateOne
 from sklearn.preprocessing import MinMaxScaler  
 from sklearn.metrics import silhouette_score, davies_bouldin_score , silhouette_samples
@@ -14,9 +14,9 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import datetime # 파일명 구분을 위해 추가
 
-collection = Database.Collection.POST
-
-
+mongo = MongoCollections()
+collection = mongo.posts
+logger = Logger(__name__)
 
 
 def perform_clustering_with_HDBSCAN(min_cluster_size=15, min_samples=8, n_neighbors=15, n_components=15):
@@ -66,10 +66,10 @@ def perform_clustering_with_HDBSCAN(min_cluster_size=15, min_samples=8, n_neighb
     for idx, doc_id in enumerate(ids):
         cluster_label = int(labels[idx])
         bulk_ops.append(UpdateOne({"_id": doc_id}, {"$set": {"cluster_label": cluster_label}}))
-        run_cypher(
-            "MERGE (p:Post {link: $link}) ON MATCH SET p.cluster = $cluster",
-            parameters={"link": links[idx], "cluster": cluster_label}
-        )
+        # run_cypher(
+        #     "MERGE (p:Post {link: $link}) ON MATCH SET p.cluster = $cluster",
+        #     parameters={"link": links[idx], "cluster": cluster_label}
+        # )
     
     if bulk_ops:
         collection.bulk_write(bulk_ops)
@@ -86,7 +86,6 @@ def perform_clustering_with_HDBSCAN(min_cluster_size=15, min_samples=8, n_neighb
         "cluster_distribution": cluster_dist,
         "silhouette_score": float(silhouette_avg)
     }
-
 
 
 def save_silhouette_plot(distance_matrix, labels, filename_prefix="silhouette_plot"):
@@ -234,10 +233,10 @@ def cluster_with_custom_metric(
     for idx, doc_id in enumerate(ids):
         cluster_label = int(labels[idx])
         bulk_ops.append(UpdateOne({"_id": doc_id}, {"$set": {"cluster_label": cluster_label}}))
-        run_cypher(
-            "MERGE (p:Post {link: $link}) ON MATCH SET p.cluster = $cluster",
-            parameters={"link": links[idx], "cluster": cluster_label}
-        )
+        # run_cypher(
+        #     "MERGE (p:Post {link: $link}) ON MATCH SET p.cluster = $cluster",
+        #     parameters={"link": links[idx], "cluster": cluster_label}
+        # )
     
     if bulk_ops:
         collection.bulk_write(bulk_ops)
