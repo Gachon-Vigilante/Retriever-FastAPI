@@ -208,12 +208,13 @@ def mongo_client() -> Optional[pymongo.MongoClient]:
 
     return _mongo_client
 
+collections = MongoCollections()
 default_db = mongo_client()[db_name]
 collection_names = [
-    MongoCollections.channels.__name__,
-    MongoCollections.chats.__name__,
-    MongoCollections.posts.__name__,
-    MongoCollections.analysis_jobs.__name__,
+    collections.channels.name,
+    collections.chats.name,
+    collections.posts.name,
+    collections.analysis_jobs.name,
 ]
 for collection_name in collection_names:
     try:
@@ -221,25 +222,25 @@ for collection_name in collection_names:
     except CollectionInvalid:
         pass
 
-MongoCollections().channels.create_index([
+collections.channels.create_index([
     ("id", 1),
     ("username", 1),
     ("title", 1)
 ], unique=True)
 
-MongoCollections().chats.create_index([
-    ("id", 1),
+collections.chats.create_index([
+    ("message_id", 1),
     ("chat_id", 1),
     ("edit_date", 1),
 ], unique=True)
 
-MongoCollections().analysis_jobs.create_index(
+collections.analysis_jobs.create_index(
     [("status", 1)],
     unique=True,
     partialFilterExpression={"status": "accepting_request"}
 )
 
-MongoCollections().analysis_jobs.create_index(
+collections.analysis_jobs.create_index(
     [("post_ids", 1)],
     unique=True, # 유일성을 보장한다.
     partialFilterExpression={ # 하지만 아래 조건을 만족하는 문서에만 적용한다.
