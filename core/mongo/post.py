@@ -217,3 +217,11 @@ class Post(BaseMongoObject):
     @classmethod
     def from_mongo(cls, doc: dict) -> Self:
         return Post.model_validate({k: v for k, v in doc.items() if k != "_id"})
+
+    @classmethod
+    def from_dict(cls, doc: dict) -> Self:
+        for field in (PostFields.title, PostFields.link, PostFields.domain):
+            if field not in doc:
+                doc[field] = ""
+        doc.pop("_id", None)
+        return Post(**doc)

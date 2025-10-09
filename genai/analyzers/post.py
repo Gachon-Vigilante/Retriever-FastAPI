@@ -67,25 +67,25 @@ class JobCompletionResult(BaseModel):
 class PostAnalyzer:
     # 1GB 크기 제한 상수
     MAX_FILE_SIZE_BYTES = 1024 * 1024 * 1024  # 1GB
+    template: list = [
+        {
+            "parts": [{"text": prompts["analysis"]["post"]["main"]}],
+            "role": "user",
+        },
+        {
+            "parts": [{"text": "Analyze the following webpage:"}],
+            "role": "user"
+        },
+    ]
+    _generation_config: dict = {
+        "temperature": 0.1,
+        "response_mime_type": "application/json",
+        "response_json_schema": PostAnalysisResult.gemini_compatible_schema()
+    }
 
     def __init__(self):
         self.collections = MongoCollections()
-        self.template: list = [
-            {
-                "parts": [{"text": prompts["analysis"]["post"]["main"]}],
-                "role": "user",
-            },
-            {
-                "parts": [{"text": "Analyze the following webpage:"}],
-                "role": "user"
-            },
-        ]
         self.client = genai.Client()
-        self.generation_config: dict = {
-            "temperature": 0.1,
-            "response_mime_type": "application/json",
-            "response_json_schema": PostAnalysisResult.gemini_compatible_schema()
-        }
 
 
     async def __aenter__(self):
@@ -129,7 +129,7 @@ class PostAnalyzer:
             logger.info(f"현재 게시글을 적재 중인 작업이 유휴 상태입니다. PENDING 상태로 전환했습니다. Job ID: {result["_id"]}")
             return ObjectId(result["_id"])
         else:
-            logger.info("현재 게시글을 적재 중인 작업이 없거나, 유휴 상태가 아닙니다.")
+            logger.info("현재 게시글을 적재 중인 유휴 상태의 작업이 없습니다.")
             return None
 
     async def _ensure_accepting_requests_job(self, session: ClientSession | None = None) -> ObjectId:
@@ -153,25 +153,27 @@ class PostAnalyzer:
         )
         return ObjectId(result["_id"])
 
-    def format(self, post: Post) -> list:
+    @classmethod
+    def format(cls, post: Post) -> list:
         instruction = (
             "Return a strict JSON object with keys: drugs_related (boolean), promotions (array of objects with keys 'content' and 'identifiers' (array of strings)). "
             "Do not include any text outside of the JSON."
         )
-        return self.template + [
+        return cls.template + [
             {
                 "parts": [{"text": f"{instruction}\n\nTitle: {post.title} \n\nContent: {post.text}"}],
                 "role": "user"
             },
         ]
 
-    def _estimate_request_size(self, post: Post) -> int:
+    @classmethod
+    def estimate_request_size(cls, post: Post) -> int:
         """요청의 예상 크기를 바이트 단위로 계산"""
         batch_data = {
             "key": f"request-temp",
             "request": {
-                "contents": self.format(post),
-                "generation_config": self.generation_config
+                "contents": cls.format(post),
+                "generation_config": cls._generation_config
             }
         }
 
@@ -187,27 +189,15 @@ class PostAnalyzer:
         accepting_job = await self._get_accepting_requests_job()
         return accepting_job is not None
 
-    async def register(self, post_id: str) -> bool:
+    async def register(self, post_id: str | ObjectId, estimated_request_size: int) -> bool:
         """
         배치 요청에 post 등록 (MongoDB)
         Returns: 등록 성공 여부
         """
-        if not await self.is_accepting_requests():
-            return False
-
         posts_collection = self.collections.posts
         jobs_collection = self.collections.analysis_jobs
-        post: Post = Post.from_mongo(posts_collection.find_one({"_id": ObjectId(post_id)}))
-        # post에 HTML 태그를 제외하고 유의미한 텍스트가 없을 때에는 생략
-        if not post.text:
-            logger.warning(f"게시글에서 유의미한 텍스트가 발견되지 않았습니다. Post ID: {post_id}")
-            return False
-
-        # 요청 크기 추정
-        estimated_size = self._estimate_request_size(post)
 
         # 트랜잭션 시작
-        await self._ensure_accepting_requests_job()
         client = mongo_client()
         with client.start_session() as session:
             while True:
@@ -217,10 +207,10 @@ class PostAnalyzer:
                         registered_job = jobs_collection.find_one_and_update(
                             filter={
                                 "status": JobStatus.ACCEPTING_REQUESTS,
-                                "file_size_bytes": {"$lt": self.MAX_FILE_SIZE_BYTES - estimated_size},
+                                "file_size_bytes": {"$lt": self.MAX_FILE_SIZE_BYTES - estimated_request_size},
                             },
                             update={
-                                "$inc": {"file_size_bytes": int(estimated_size), "post_count": 1},
+                                "$inc": {"file_size_bytes": int(estimated_request_size), "post_count": 1},
                                 "$push": {"post_ids": post_id},
                                 "$set": {"updated_at": datetime.now()},
                             },
@@ -254,8 +244,11 @@ class PostAnalyzer:
                     # 트랜잭션은 자동으로 롤백됩니다.
                     return False
                 except OperationFailure as e:
+                    # 일시적인 트랜잭션 오류가 발생했을 경우.
+                    # 여러 프로세스가 register를 시도할 때 동일한 job에 대해 여러 번 쓰기가 발생하면서 이런 오류가 일어날 수 있습니다.
+                    # register를 실행하는 프로세스(워커)를 1개로 제한하면 일반적으로 발생하지 않습니다.
                     if e.has_error_label("TransientTransactionError"):
-                        logger.warning("일시적인 트랜잭션 오류(WriteConflict)가 발생했습니다. 작업 등록을 다시 시도합니다.")
+                        logger.warning("일시적인 트랜잭션 오류가 발생했습니다. 작업 등록을 다시 시도합니다.")
                     else:
                         raise
                 except PyMongoError as e:
@@ -334,7 +327,7 @@ class PostAnalyzer:
                             "key": str(doc["_id"]),
                             "request": {
                                 "contents": self.format(post),
-                                "generation_config": self.generation_config
+                                "generation_config": self._generation_config
                             }
                         }
                         f.write(json.dumps(batch_data, ensure_ascii=False) + "\n")
@@ -546,7 +539,7 @@ class PostAnalyzer:
             )
             job_completion_result.completed_job_count += 1
 
-        logger.info(f"Gemini에서 완료된 {job_completion_result.processed_job_count}개의 작업 중"
+        logger.info(f"Gemini에서 완료된 {job_completion_result.processed_job_count}개의 작업 중 "
                     f"{job_completion_result.completed_job_count}개의 작업을 다운로드해서 반영했습니다.")
 
         return job_completion_result
