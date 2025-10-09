@@ -379,10 +379,10 @@ class Channel(BaseMongoObject):
     )
 
     def model_dump_only_insert(self):
-        return {k: v for k, v in self.model_dump().items() if k in self.protected_fields}
+        return {k: v for k, v in self.model_dump().items() if k in protected_fields}
 
     def model_dump_only_update(self):
-        return {k: v for k, v in self.model_dump().items() if k not in self.protected_fields}
+        return {k: v for k, v in self.model_dump().items() if k not in protected_fields}
 
     def store(self) -> None:
         channel_collection = MongoCollections().channels

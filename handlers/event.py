@@ -73,5 +73,5 @@ class EventHandler:
         # 이벤트가 채팅방 이벤트이고, 메세지가 있을 때에만
         if (chat := await telethon_event.get_chat()) and (message := telethon_event.message):
             message: Message = Message.from_telethon(message)
-            logger.debug(f"새로운 메세지가 발생했습니다. Chat|Channel ID: {chat.id}, Message ID: {message.id}")
+            logger.debug(f"새로운 메세지가 발생했습니다. Chat|Channel ID: {chat.id}, Message ID: {message.message_id}")
             message.store()
