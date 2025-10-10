@@ -118,7 +118,7 @@ class MongoCollections:
             pymongo.collection.Collection: messages 컬렉션 객체
                                           messages collection object
         """
-        return self.db.chats
+        return self.db.messages
 
     @property
     @lru_cache(maxsize=1)
