@@ -119,11 +119,6 @@ class MongoCollections:
 
     @property
     @lru_cache(maxsize=1)
-    def posts(self) -> pymongo.collection.Collection:
-        return self.db.posts
-
-    @property
-    @lru_cache(maxsize=1)
     def post_similarity(self) -> pymongo.collection.Collection:
         return self.db.post_similarity
 
@@ -282,4 +277,3 @@ collections.analysis_jobs.create_index(
         }
     }
 )
-
