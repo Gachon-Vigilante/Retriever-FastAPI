@@ -38,7 +38,7 @@ def telegram_channel_task(channel_identifier: str, post_id: str | None = None, m
                 if post_id and mongo_path:
                     result = post_collection.update_one(
                         {"_id": post_id},
-                        {"$set": {mongo_path+".channel_id": channel.id}}
+                        {"$set": {mongo_path+".channel_id": channel.channel_id}}
                     )
                     if result.modified_count == 1:
                         logger.info(f"채널 식별자에 연결된 채널 ID를 MongoDB에 입력했습니다. post ID: {post_id}, path: {mongo_path}")
@@ -48,7 +48,7 @@ def telegram_channel_task(channel_identifier: str, post_id: str | None = None, m
                         logger.error(f"채널 식별자에 연결된 채널 ID를 찾았지만 MongoDB에 저장할 수 없었습니다. post ID: {post_id}, path: {mongo_path}")
 
                 response = requests.post(
-                    url=urljoin(os.getenv("FASTAPI_HOST"), f"/api/v1/channel/{channel.id}/monitor"),
+                    url=urljoin(os.getenv("FASTAPI_HOST"), f"/api/v1/channel/{channel.channel_id}/monitor"),
                     timeout=10,
                 )
                 logger.info(f"FastAPI 서버에 채널 모니터링을 요청했습니다. "

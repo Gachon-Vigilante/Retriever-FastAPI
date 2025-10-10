@@ -112,7 +112,7 @@ Teleprobe는 다음 기능을 목표로 합니다.
   - posts: 웹 게시글 저장
     - 필드: title, link, domain, text(옵션), analysis(옵션), description, publishedAt, discoveredAt
     - 저장 정책: 초기 저장 시 text 제외. Gemini 결과에서 drugs_related=true일 때 text를 추가 저장. 아니면 text는 None으로 유지.
-  - channels, chats: 텔레그램 관련 데이터
+  - channels, messages: 텔레그램 관련 데이터
 
 - SQLite
   - core/sqlite.py: TelegramToken(토큰/세션/만료일 등)
