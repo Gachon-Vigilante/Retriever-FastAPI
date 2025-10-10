@@ -20,6 +20,7 @@ from telethon.errors import (
     ChannelInvalidError,
     ChannelPrivateError,
     FloodWaitError,
+    UsernameInvalidError,
 )
 
 __all__ = [
@@ -29,16 +30,19 @@ __all__ = [
     'ChannelInvalidError',
     'ChannelPrivateError',
     'FloodWaitError',
+    'UsernameInvalidError',
     'ApiIdInvalidError',
     'ApiHashInvalidError',
     'UnknownInvitationTypeError',
     'SessionStringInvalidError',
     'ChannelNotFoundError',
+    'EntityNotFoundError',
     'UsernameNotFoundError',
     'ChannelKeyInvalidError',
     'ChannelNotWatchedError',
     'ChannelAlreadyWatchedError',
     'NotChannelError',
+    'ACCEPTABLE_EXCEPTIONS',
 ]
 
 
@@ -131,7 +135,6 @@ class UsernameNotFoundError(Exception):
     """사용자명을 찾을 수 없는 경우에 대한 예외 클래스
 
     지정된 @username으로 사용자나 채널을 찾을 수 없는 경우 발생합니다.
-    존재하지 않는 사용자명이거나 비공개 계정인 경우에 사용됩니다.
 
     Exception class for username not found
 
@@ -143,6 +146,18 @@ class UsernameNotFoundError(Exception):
     """
     def __init__(self, msg: Optional[str] = None):
         super().__init__(msg or "Username not found.")
+
+class EntityNotFoundError(Exception):
+    """어떠한 엔티티도 찾을 수 없는 경우에 대한 예외 클래스
+
+    지정된 채널 식별자(@username, id 등)으로 사용자나 채널을 찾을 수 없는 경우 발생합니다.
+
+    Examples:
+        raise UsernameNotFoundError("사용자명을 찾을 수 없습니다: @username")
+    """
+
+    def __init__(self, msg: Optional[str] = None):
+        super().__init__(msg or "Entity not found.")
 
 class ChannelKeyInvalidError(Exception):
     """잘못된 채널 키에 대한 예외 클래스
@@ -211,3 +226,23 @@ class NotChannelError(Exception):
     """
     def __init__(self, msg: Optional[str] = None):
         super().__init__(msg or "Connected entity is not a channel.")
+
+
+ACCEPTABLE_EXCEPTIONS = (
+    InviteHashEmptyError,
+    InviteHashExpiredError,
+    InviteHashInvalidError,
+    ChannelInvalidError,
+    ChannelPrivateError,
+    FloodWaitError,
+    UsernameInvalidError,
+    ApiIdInvalidError,
+    ApiHashInvalidError,
+    UnknownInvitationTypeError,
+    SessionStringInvalidError,
+    ChannelNotFoundError,
+    EntityNotFoundError,
+    UsernameNotFoundError,
+    ChannelKeyInvalidError,
+    NotChannelError,
+)

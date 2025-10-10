@@ -1,0 +1,17 @@
+# .dockerignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+.git/
+.gitignore
+README.md
+.pytest_cache/
+.coverage
+.DS_Store
+*.log
+
+# uv 관련
+.uv_cache/

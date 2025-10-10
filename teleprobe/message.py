@@ -69,7 +69,7 @@ class MessageMethods:
     async def iter_messages(
             self: 'TeleprobeClient',
             entity: Union[TelethonChannel, TelethonChat],
-            handler: Callable[[Message], Coroutine] = None,
+            handler: Callable[[Message, int], Coroutine] = None,
     ):
         """지정된 엔티티의 메시지들을 비동기적으로 반복하는 제너레이터 메서드
 
@@ -124,6 +124,5 @@ class MessageMethods:
         """
         async for message in self.client.iter_messages(entity):
             if handler and isinstance(handler, Callable) and isinstance(message, Message):
-                await handler(message)
+                await handler(message, entity.id)
             yield message
-

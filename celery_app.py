@@ -1,7 +1,8 @@
 import os
+
 from celery import Celery
-from celery.schedules import crontab
 from kombu import Queue, Exchange
+
 import tasks
 
 # Broker and backend from environment
@@ -45,21 +46,21 @@ def setup_celery():
     # queue를 추가로 설정함으로써 큐를 자동 선언
     app.conf.task_routes = {
         # 검색
-        tasks.search_module_name: {"queue": "search", "routing_key": "search.start"},
+        tasks.names.SEARCH_TASK_NAME: {"queue": "search", "routing_key": "search.start"},
         # 크롤링
-        tasks.crawl_module_name: {"queue": "crawl", "routing_key": "crawl.page"},
+        tasks.names.CRAWL_TASK_NAME: {"queue": "crawl", "routing_key": "crawl.page"},
         # gemini로 분석
-        tasks.analyze_module_name: {"queue": "analyze", "routing_key": "analyze.gemini.batch"},
+        tasks.names.ANALYSIS_TASK_NAME: {"queue": "analyze", "routing_key": "analyze.gemini.batch"},
         # 배치 폴링
-        tasks.poll_gemini_module_name: {"queue": "poll", "routing_key": "poll.gemini.batch"},
-        # 텔레그램 분석
-        tasks.telegram_module_name: {"queue": "telegram", "routing_key": "telegram.messages"},
+        tasks.names.POLL_GEMINI_TASK_NAME: {"queue": "poll", "routing_key": "poll.gemini.batch"},
+        # 텔레그램 채널 및 메시지 수집
+        tasks.names.TELEGRAM_CHANNEL_TASK_NAME: {"queue": "telegram", "routing_key": "telegram"},
     }
 
     # Periodic tasks: poll Gemini batches every minute
     app.conf.beat_schedule = {
         "poll-gemini-batches": {
-            "task": tasks.poll_gemini_module_name,
+            "task": tasks.names.POLL_GEMINI_TASK_NAME,
             "schedule": 60.0,  # every 60 seconds
         }
     }
@@ -67,5 +68,5 @@ def setup_celery():
 setup_celery()
 
 @app.task(bind=True)
-def ping(self):
+def ping():
     return "pong"

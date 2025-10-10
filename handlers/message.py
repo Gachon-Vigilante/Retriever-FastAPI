@@ -58,7 +58,7 @@ class MessageHandler:
         - Others -> None (warning log output)
     """
 
-    async def __call__(self, message: Union[TelethonMessage, Any]):
+    async def __call__(self, message: Union[TelethonMessage, Any], chat_id: int):
         """텔레그램 메시지를 처리하고 저장하는 비동기 callable 메서드
 
         제공된 메시지의 발신자 정보를 분석하고, 메시지를 내부 Message 모델로
@@ -124,7 +124,7 @@ class MessageHandler:
         Message.from_telethon(
             message,
             sender_id=sender_id,
-            chat_id=message.id,
+            chat_id=chat_id,
             sender_type=sender_type
         ).store()
 
@@ -176,7 +176,7 @@ class FakeMessageHandler(MessageHandler):
         """
         super().__init__()
 
-    async def __call__(self, message):
+    async def __call__(self, message, chat_id):
         """메시지 내용을 디버그 로그로 출력하는 비동기 callable 메서드
 
         실제 저장 작업 없이 메시지의 텍스트 내용만을 디버그 레벨로 로그에 출력합니다.

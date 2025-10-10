@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Union, Optional
 
-from telethon.sync import types
+from telethon.tl import types
 from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
 from telethon.tl.types import PeerChannel, Channel as TelethonChannel
 from .constants import Logger
@@ -317,9 +317,6 @@ class ConnectMethods:
             4. Join with ImportChatInviteRequest if ChatInvite
             5. Return existing entity if ChatInviteAlready
         """
-        # 연결 상태 확인
-        await self.ensure_connected()
-
         invite_hash = self._extract_invite_hash(invite_link)
         logger.debug(f"초대 링크 처리 중... 해시: {invite_hash}")
 
@@ -344,8 +341,6 @@ class ConnectMethods:
 
     async def connect_channel(self: 'TeleprobeClient', channel_key: Union[int, str]) -> TelethonChannel:
         """채널 ID, @username, 초대 링크 등 다양한 키로 텔레그램 채널에 연결합니다."""
-        # 연결 상태 확인
-        await self.ensure_connected()
         key_type = self._identify_channel_key_type(channel_key)
         logger.debug(f"채널 연결 중... 키: {channel_key}, 타입: {key_type.value}")
 
@@ -361,6 +356,9 @@ class ConnectMethods:
                 if "No user has" in str(e):
                     err = UsernameNotFoundError(f"@username {channel_key}에 해당하는 채널이 없습니다.")
                     logger.error(err)
+                    raise err from e
+                elif "Cannot find any entity corresponding to" in str(e):
+                    err = EntityNotFoundError(f"식별자 {channel_key}에 해당하는 객체가 없습니다.")
                     raise err from e
                 else:
                     raise e
