@@ -200,7 +200,7 @@ class ChannelMethods:
         async with cls._global_client as global_client:
             channel = await global_client.get_channel(channel_key)
             if channel:
-                channel_id = channel.id
+                channel_id = channel.channel_id
                 channel_description = f"Channel ID: {channel_id}"\
                                       f", title: {channel.title}, username: @{channel.username}" if channel else ""
 
