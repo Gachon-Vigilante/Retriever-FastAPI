@@ -17,6 +17,7 @@ from functools import lru_cache
 
 import pymongo
 from dotenv import load_dotenv
+from pymongo.errors import CollectionInvalid
 
 from utils import Logger
 
@@ -24,6 +25,8 @@ from utils import Logger
 logger = Logger(__name__)
 
 load_dotenv()
+
+db_name = os.getenv('MONGO_DB_NAME')
 
 class MongoCollections:
     """MongoDB 컬렉션들을 중앙 관리하는 클래스
@@ -75,7 +78,6 @@ class MongoCollections:
         """
         if db and not isinstance(db, pymongo.database.Database):
             raise TypeError("Database object must be provided with pymongo.database.Database type.")
-        db_name = os.getenv('MONGO_DB_NAME')
         if not db and not db_name:
             raise EnvironmentError("To use default MongoDB instance, MONGO_DB_NAME environment variable must be set.")
         self.db = db or mongo_client()[db_name]
@@ -146,7 +148,7 @@ class MongoCollections:
 _mongo_client: Optional[pymongo.MongoClient] = None
 
 @lru_cache(maxsize=1)
-def mongo_client():
+def mongo_client() -> Optional[pymongo.MongoClient]:
     """MongoDB 클라이언트를 지연 생성하고 캐시하는 함수
 
     환경 변수에서 연결 문자열을 읽어 MongoDB 클라이언트를 생성합니다.
@@ -205,3 +207,51 @@ def mongo_client():
             return None
 
     return _mongo_client
+
+collections = MongoCollections()
+default_db = mongo_client()[db_name]
+collection_names = [
+    collections.channels.name,
+    collections.chats.name,
+    collections.posts.name,
+    collections.analysis_jobs.name,
+]
+for collection_name in collection_names:
+    try:
+        default_db.create_collection(collection_name)
+    except CollectionInvalid:
+        pass
+
+collections.channels.create_index([
+    ("id", 1),
+    ("username", 1),
+    ("title", 1)
+], unique=True)
+
+collections.chats.create_index([
+    ("message_id", 1),
+    ("chat_id", 1),
+    ("edit_date", 1),
+], unique=True)
+
+collections.analysis_jobs.create_index(
+    [("status", 1)],
+    unique=True,
+    partialFilterExpression={"status": "accepting_request"}
+)
+
+collections.analysis_jobs.create_index(
+    [("post_ids", 1)],
+    unique=True, # 유일성을 보장한다.
+    partialFilterExpression={ # 하지만 아래 조건을 만족하는 문서에만 적용한다.
+        "status": {
+            "$in": [
+                "accepting_request",
+                "pending",
+                "submitted",
+                "processed"
+                # FAILED와 COMPLETED 상태는 여기서 제외
+            ]
+        }
+    }
+)

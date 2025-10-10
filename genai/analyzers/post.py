@@ -1,7 +1,7 @@
 import json
 import os
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Optional, Dict, Any, List
 
@@ -10,8 +10,11 @@ from google import genai
 from google.genai import types
 from google.genai.types import CreateBatchJobConfig, GenerationConfig
 from pydantic import Field, ValidationError, BaseModel
+from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError, PyMongoError, OperationFailure
+from pymongo.synchronous.client_session import ClientSession
 
-from core.mongo.connections import MongoCollections
+from core.mongo.connections import MongoCollections, mongo_client
 from core.mongo.post import Post, PostAnalysisResult, TelegramPromotion, PostFields
 from utils import Logger
 from ..models import prompts
@@ -55,30 +58,34 @@ class JobCompletionResult(BaseModel):
         title="Completed Request Count",
         description="The number of requests that were completed successfully.",
     )
+    telegram_channel_keys: list[str] = Field(
+        default=[],
+        title="Telegram Channel Keys",
+    )
 
 
 class PostAnalyzer:
     # 1GB 크기 제한 상수
     MAX_FILE_SIZE_BYTES = 1024 * 1024 * 1024  # 1GB
+    template: list = [
+        {
+            "parts": [{"text": prompts["analysis"]["post"]["main"]}],
+            "role": "user",
+        },
+        {
+            "parts": [{"text": "Analyze the following webpage:"}],
+            "role": "user"
+        },
+    ]
+    _generation_config: dict = {
+        "temperature": 0.1,
+        "response_mime_type": "application/json",
+        "response_json_schema": PostAnalysisResult.gemini_compatible_schema()
+    }
 
     def __init__(self):
         self.collections = MongoCollections()
-        self.template: list = [
-            {
-                "parts": [{"text": prompts["analysis"]["post"]["main"]}],
-                "role": "user",
-            },
-            {
-                "parts": [{"text": "Analyze the following webpage:"}],
-                "role": "user"
-            },
-        ]
         self.client = genai.Client()
-        self.generation_config: dict = {
-            "temperature": 0.1,
-            "response_mime_type": "application/json",
-            "response_json_schema": PostAnalysisResult.gemini_compatible_schema()
-        }
 
 
     async def __aenter__(self):
@@ -89,47 +96,84 @@ class PostAnalyzer:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         return None
 
-    async def _ensure_accepting_requests_job(self):
+    async def _flip_accepting_job_to_pending(self, session: ClientSession | None = None) -> ObjectId | None:
+        await self._ensure_accepting_requests_job(session=session)
+        jobs_col = self.collections.analysis_jobs
+        result = jobs_col.find_one_and_update(
+            {
+                "status": JobStatus.ACCEPTING_REQUESTS,
+                "post_count": {"$gt": 0},
+            },
+            {"$set": {"status": JobStatus.PENDING}},
+            return_document=ReturnDocument.AFTER,
+            session=session,
+        )
+        logger.info(f"현재 게시글을 적재 중인 작업을 PENDING 상태로 전환했습니다. Job ID: {result["_id"]}")
+        await self._ensure_accepting_requests_job(session=session)
+        return ObjectId(result["_id"])
+
+    async def flip_idle_accepting_job_to_pending(self, session: ClientSession | None = None) -> ObjectId | None:
+        jobs_col = self.collections.analysis_jobs
+        result = jobs_col.find_one_and_update(
+            {
+                "status": JobStatus.ACCEPTING_REQUESTS,
+                "post_count": {"$gt": 0},
+                "updated_at": {"$lt": datetime.now() - timedelta(seconds=int(os.getenv("ANALYZE_IDLE_SECONDS", 120)))},
+            },
+            {"$set": {"status": JobStatus.PENDING}},
+            return_document=ReturnDocument.AFTER,
+            session=session,
+        )
+        await self._ensure_accepting_requests_job(session=session)
+        if result is not None:
+            logger.info(f"현재 게시글을 적재 중인 작업이 유휴 상태입니다. PENDING 상태로 전환했습니다. Job ID: {result["_id"]}")
+            return ObjectId(result["_id"])
+        else:
+            logger.info("현재 게시글을 적재 중인 유휴 상태의 작업이 없습니다.")
+            return None
+
+    async def _ensure_accepting_requests_job(self, session: ClientSession | None = None) -> ObjectId:
         """Ensure exactly one ACCEPTING_REQUESTS job exists in MongoDB."""
         jobs_col = self.collections.analysis_jobs
-        accepting = list(jobs_col.find({"status": JobStatus.ACCEPTING_REQUESTS}))
-        if len(accepting) == 0:
-            jobs_col.insert_one({
+        # update를 수행하고, 만약 문서가 없으면 upsert된 문서의 id를, 이미 있다면 그 문서의 id 반환
+        result = jobs_col.find_one_and_update(
+            {"status": JobStatus.ACCEPTING_REQUESTS},
+            {"$setOnInsert":{
                 "name": None,
-                "status": JobStatus.ACCEPTING_REQUESTS,
                 "file_size_bytes": 0,
                 "post_count": 0,
-                "post_ids": [],  # Store ObjectIds of registered posts
+                "post_ids": [],
                 "result": None,
                 "created_at": datetime.now(),
                 "updated_at": datetime.now(),
-            })
-        elif len(accepting) > 1:
-            keep_id = accepting[0]["_id"]
-            jobs_col.update_many(
-                {"_id": {"$ne": keep_id}, "status": JobStatus.ACCEPTING_REQUESTS},
-                {"$set": {"status": JobStatus.PENDING, "updated_at": datetime.now()}}
-            )
+            }},
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+            session=session,
+        )
+        return ObjectId(result["_id"])
 
-    def format(self, post: Post) -> list:
+    @classmethod
+    def format(cls, post: Post) -> list:
         instruction = (
-            "Return a strict JSON object with keys: drugs_related (boolean), promotions (array of objects with keys 'content' and 'links' (array of strings)). "
+            "Return a strict JSON object with keys: drugs_related (boolean), promotions (array of objects with keys 'content' and 'identifiers' (array of strings)). "
             "Do not include any text outside of the JSON."
         )
-        return self.template + [
+        return cls.template + [
             {
                 "parts": [{"text": f"{instruction}\n\nTitle: {post.title} \n\nContent: {post.text}"}],
                 "role": "user"
             },
         ]
 
-    def _estimate_request_size(self, post: Post) -> int:
+    @classmethod
+    def estimate_request_size(cls, post: Post) -> int:
         """요청의 예상 크기를 바이트 단위로 계산"""
         batch_data = {
             "key": f"request-temp",
             "request": {
-                "contents": self.format(post),
-                "generation_config": self.generation_config
+                "contents": cls.format(post),
+                "generation_config": cls._generation_config
             }
         }
 
@@ -145,97 +189,102 @@ class PostAnalyzer:
         accepting_job = await self._get_accepting_requests_job()
         return accepting_job is not None
 
-    async def register(self, post_id: str) -> bool:
+    async def register(self, post_id: str | ObjectId, estimated_request_size: int) -> bool:
         """
         배치 요청에 post 등록 (MongoDB)
         Returns: 등록 성공 여부
         """
-        if not await self.is_accepting_requests():
-            return False
-
         posts_collection = self.collections.posts
         jobs_collection = self.collections.analysis_jobs
-        post: Post = Post.from_mongo(posts_collection.find_one({"_id": ObjectId(post_id)}))
-        # post에 HTML 태그를 제외하고 유의미한 텍스트가 없을 때에는 생략
-        if not post.text:
-            logger.warning(f"게시글에서 유의미한 텍스트가 발견되지 않았습니다. Post ID: {post_id}")
-            return False
 
-        # 요청 크기 추정
-        estimated_size = self._estimate_request_size(post)
-
-        # 현재 ACCEPTING_REQUESTS Job 가져오기
-        current_job = jobs_collection.find_one({"status": JobStatus.ACCEPTING_REQUESTS})
-        if not current_job:
-            await self._ensure_accepting_requests_job()
-            current_job = jobs_collection.find_one({"status": JobStatus.ACCEPTING_REQUESTS})
-        if not current_job:
-            return False
-
-        # 1GB 제한 확인
-        if int(current_job.get("file_size_bytes", 0)) + estimated_size > self.MAX_FILE_SIZE_BYTES:
-            jobs_collection.update_one(
-                {"_id": current_job["_id"]},
-                {"$set": {"status": JobStatus.PENDING, "updated_at": datetime.now()}}
-            )
-            # 새 Job 생성
-            jobs_collection.insert_one({
-                "name": None,
-                "post_count": 0,
-                "status": JobStatus.ACCEPTING_REQUESTS,
-                "file_size_bytes": 0,
-                "result": None,
-                "created_at": datetime.now(),
-                "updated_at": datetime.now(),
-            })
-            current_job = jobs_collection.find_one({"status": JobStatus.ACCEPTING_REQUESTS})
-
-        # post의 analysis job id 필드를 현재 작업 id로 설정
-        # analysis_job_id가 현재 작업의 ID가 아닌 경우에만 원자적 업데이트
-        result = posts_collection.update_one(
-            {
-                "_id": ObjectId(post_id),
-                "text": {"$ne": None},
-                "analysis": None,
-                "analysis_job_id": {"$ne": current_job["_id"]},
-            },
-            {
-                "$set": {"analysis_job_id": current_job["_id"]},
-            }
-        )
-        # 실제로 업데이트된 경우에만 카운트 증가
-        if result.modified_count > 0:
-            # Job 크기, 개수 업데이트
-            jobs_collection.update_one(
-                {"_id": current_job["_id"]},
-                {
-                    "$inc": {"file_size_bytes": int(estimated_size), "post_count": 1},
-                    "$set": {"updated_at": datetime.now()},
-                }
-            )
-            logger.info(f"게시글을 작업에 등록했습니다. Post ID: {post_id}, Job ID: {current_job['_id']}")
-        else:
-            logger.warning(f"이미 등록되어 있거나 조건에 맞지 않는 게시글입니다. Post ID: {post_id}")
-            return False
-
+        # 트랜잭션 시작
+        client = mongo_client()
+        with client.start_session() as session:
+            while True:
+                try:
+                    with session.start_transaction():
+                        # 파일 제출 최대 크기 제한 확인 (기본 1GB)
+                        registered_job = jobs_collection.find_one_and_update(
+                            filter={
+                                "status": JobStatus.ACCEPTING_REQUESTS,
+                                "file_size_bytes": {"$lt": self.MAX_FILE_SIZE_BYTES - estimated_request_size},
+                            },
+                            update={
+                                "$inc": {"file_size_bytes": int(estimated_request_size), "post_count": 1},
+                                "$push": {"post_ids": post_id},
+                                "$set": {"updated_at": datetime.now()},
+                            },
+                            return_document=ReturnDocument.AFTER,
+                            session=session,
+                        )
+                        if registered_job:
+                            # post의 analysis job id 필드를 현재 작업 id로 설정
+                            posts_collection.update_one(
+                                {
+                                    "_id": ObjectId(post_id),
+                                },
+                                {
+                                    "$set": {"analysis_job_id": registered_job["_id"]},
+                                },
+                                session=session,
+                            )
+                            break
+                        else:
+                            # 기존에 요청을 받던 job을 PENDING 상태로 변경하고 새 job 생성
+                            existing_job_id = await self._flip_accepting_job_to_pending(session=session)
+                            new_job_id = await self._ensure_accepting_requests_job(session=session)
+                            logger.info("작업의 최대 크기를 초과했습니다. 새로운 작업 요청을 생성했습니다."
+                                        f"기존 job ID: {existing_job_id}, 새로운 job ID: {new_job_id}")
+                            continue
+                except DuplicateKeyError:
+                    # 이 예외는 경쟁 상태에서 다른 프로세스가 먼저 등록에 성공했음을 의미합니다.
+                    # 위험한 상황이 아니라, 정상적인 중복 방지 동작입니다.
+                    logger.warning(f"이 게시글은 다른 진행 중인 작업에 이미 등록되었습니다. Post ID: {post_id}")
+                    # False를 반환하여 호출자에게 등록되지 않았음을 알립니다.
+                    # 트랜잭션은 자동으로 롤백됩니다.
+                    return False
+                except OperationFailure as e:
+                    # 일시적인 트랜잭션 오류가 발생했을 경우.
+                    # 여러 프로세스가 register를 시도할 때 동일한 job에 대해 여러 번 쓰기가 발생하면서 이런 오류가 일어날 수 있습니다.
+                    # register를 실행하는 프로세스(워커)를 1개로 제한하면 일반적으로 발생하지 않습니다.
+                    if e.has_error_label("TransientTransactionError"):
+                        logger.warning("일시적인 트랜잭션 오류가 발생했습니다. 작업 등록을 다시 시도합니다.")
+                    else:
+                        raise
+                except PyMongoError as e:
+                    # 트랜잭션 도중 어떤 에러라도 발생하면 모든 변경사항이 취소됨
+                    logger.error(f"오류 발생. MongoDB 트랜잭션이 롤백되었습니다: {e}")
+                    raise
+        logger.info(f"게시글을 작업에 등록했습니다. Post ID: {post_id}, Job ID: {registered_job['_id']}")
         return True
 
     async def register_all(self):
         posts_collection = self.collections.posts
         analysis_jobs_collection = self.collections.analysis_jobs
-
+        
         posts_to_analyze = list(posts_collection.find({
-            "text": {"$nin": [None, ""]},
-            "analysis": {"$nin": [None, ""]},
+            "text": {"$nin": [None, ""]}, # 크롤링된 텍스트는 있지만
+            "analysis": {"$ne": None}, # 분석 결과가 없고
+            # 작업이 진행 중이지도 않은 모든 작업을 재등록
             "analysis_job_id": {"$nin": [
                 job["_id"]
                 for job in analysis_jobs_collection.find(
-                    {"status": {"$in": [JobStatus.ACCEPTING_REQUESTS, JobStatus.PENDING]}},
+                    {"status": {"$in": [
+                        JobStatus.ACCEPTING_REQUESTS,
+                        JobStatus.PENDING,
+                        JobStatus.SUBMITTED,
+                        JobStatus.PROCESSED,
+                    ]}},
                 )
             ]}
         }))
         for doc in posts_to_analyze:
             await self.register(doc["_id"])
+
+    async def flip_idle_to_pending(self):
+        """
+        idle 상태(새로운 작업이 들어오지 않고 있는
+        """
 
     async def submit_batch(self) -> Optional[List[str]]:
         """
@@ -246,13 +295,13 @@ class PostAnalyzer:
         analysis_jobs_collection = self.collections.analysis_jobs
 
         jobs_to_submit = list(analysis_jobs_collection.find({
-            "status": {"$in": [JobStatus.ACCEPTING_REQUESTS.value, JobStatus.PENDING.value]},
+            "status": {"$in": [JobStatus.PENDING.value]},
             "post_count": {"$gt": 0}
         }))
         if not jobs_to_submit:
             return None
 
-        logger.info(f"제출하지 않은 작업 {len(jobs_to_submit)}개가 발견되었습니다.")
+        logger.info(f"제출하지 않은 작업 {len(jobs_to_submit)}개가 제출 대기 중입니다.")
 
         submitted_job_names: list[str] = []
         for job in jobs_to_submit:
@@ -278,7 +327,7 @@ class PostAnalyzer:
                             "key": str(doc["_id"]),
                             "request": {
                                 "contents": self.format(post),
-                                "generation_config": self.generation_config
+                                "generation_config": self._generation_config
                             }
                         }
                         f.write(json.dumps(batch_data, ensure_ascii=False) + "\n")
@@ -319,9 +368,13 @@ class PostAnalyzer:
                 logger.info(f"작업이 제출되었습니다. Job name: {job.get('name')}, Job ID: {job.get('_id')}")
 
         await self._ensure_accepting_requests_job()
+        if submitted_job_names:
+            logger.info(f"{len(submitted_job_names)}개의 작업이 제출되었습니다.")
+        else:
+            logger.info(f"제출할 대기 상태의 작업이 없습니다.")
         return submitted_job_names if submitted_job_names else None
 
-    async def check_batch_status(self) -> None:
+    async def check_batch_status(self) -> list[str] | None:
         """배치 작업 상태 확인 및 업데이트. 완료된 경우 결과 처리는 포함하지 않음 (Mongo)"""
         jobs_col = self.collections.analysis_jobs
         active_jobs = list(jobs_col.find({
@@ -329,17 +382,20 @@ class PostAnalyzer:
             "name": {"$ne": None}
         }))
         if not active_jobs:
+            logger.info(f"현재 저장한 작업들 중 Gemini에 제출한 작업이 없습니다.")
             return None
+        logger.info(f"현재 저장한 작업들 중 Gemini에 {len(active_jobs)}개의 작업을 제출한 상태입니다.")
+        processed_job_names = []
 
-        job_statuses: list[dict[str, Any]] = []
         for job in active_jobs:
             try:
                 batch_info = self.client.batches.get(name=job["name"]) if job.get("name") else None
                 if batch_info is None:
-                    logger.warning(f"MongoDB에 저장된 배치 작업이 gemini batch 대기열에 없습니다. job id: {job.get('_id')}")
+                    logger.warning(f"배치 작업이 MongoDB에 저장되었지만, gemini batch 대기열에 없습니다. job id: {job.get('_id')}")
                     continue
 
                 state = batch_info.state.name
+                processed_job_names.append(job["name"])
                 new_status = None
                 match state:
                     case GeminiBatchJobState.SUCCEEDED:
@@ -361,7 +417,7 @@ class PostAnalyzer:
                     case _:
                         logger.warning(f"배치 작업이 알 수 없는 상태에 있습니다. state: {state}, Job ID: {job.get('_id')}, Job name: {job.get('name')}")
 
-                if new_status:
+                if new_status is not None:
                     jobs_col.update_one(
                         {"_id": job["_id"]},
                         {"$set": {"status": new_status, "updated_at": datetime.now()}}
@@ -369,7 +425,7 @@ class PostAnalyzer:
             except Exception as e:
                 logger.error(f"Job {job.get('_id')} 상태 확인 실패: {e}")
 
-        return None
+        return processed_job_names
 
     async def get_job_statistics(self) -> Dict[str, Any]:
         """Job 통계 조회 (Mongo)"""
@@ -422,7 +478,7 @@ class PostAnalyzer:
                 logger.warning(f"Gemini batch 대기열에서 찾은 배치 작업에서 파일이 존재하지 않습니다. job id: {job.get('_id')}")
                 continue
 
-            # If batch job was created with a file, Results are in a file
+            # If a batch job was created with a file, Results are in a file
             result_file_name = batch_info.dest.file_name
             logger.info(f"배치 작업 이름: {job.get("name")}, 결과 파일 이름: {result_file_name} 다운로드 중...")
             file_content = self.client.files.download(file=result_file_name)
@@ -453,7 +509,7 @@ class PostAnalyzer:
                     }}
                 )
                 try:
-                    analysis_dict: dict = json.loads(analysis)
+                    analysis_dict = json.loads(analysis)
                     if not isinstance(analysis_dict, dict):
                         raise TypeError(f"Expected dict, got {type(analysis_dict)} instead.")
                 except Exception as e:
@@ -482,6 +538,9 @@ class PostAnalyzer:
                 {"$set": {"status": JobStatus.COMPLETED, "updated_at": datetime.now()}}
             )
             job_completion_result.completed_job_count += 1
+
+        logger.info(f"Gemini에서 완료된 {job_completion_result.processed_job_count}개의 작업 중 "
+                    f"{job_completion_result.completed_job_count}개의 작업을 다운로드해서 반영했습니다.")
 
         return job_completion_result
 

@@ -195,58 +195,52 @@ async def register(
         6. Return registration result response
     """
     with get_db() as db:
-        # TeleprobeClient 생성
-        client = TeleprobeClient.register(
+        # TeleprobeClient 생성 (자동으로 연결 테스트)
+        logger.info(f"TeleprobeClient 등록 시작: api_id={client.api_id}")
+        with TeleprobeClient(
             api_id=credentials.api_id,
             api_hash=credentials.api_hash,
             session_string=credentials.session_string,
             phone=credentials.phone
-        )
+        ) as client:
 
-        # 클라이언트 등록 (연결 테스트)
-        logger.info(f"TeleprobeClient 등록 시작: api_id={client.api_id}")
+            # 기존 토큰 확인 (같은 api_id로 이미 등록된 경우)
+            existing_token: Optional[TelegramToken] = db.query(TelegramToken).filter(
+                TelegramToken.api_id == client.api_id,
+                TelegramToken.is_active == 1,
+                TelegramToken.expires_at > datetime.now()
+            ).first()
 
-        # 클라이언트 연결 확인
-        await client.ensure_connected()
-        await client.disconnect()
+            if existing_token:
+                logger.info(f"기존 활성 토큰 발견: {existing_token.token[:10]}...")
+                return RegisterResponse(
+                    token=existing_token.token,
+                    expires_at=existing_token.expires_at,
+                    message="기존 활성 토큰을 반환했습니다."
+                )
 
-        # 기존 토큰 확인 (같은 api_id로 이미 등록된 경우)
-        existing_token: Optional[TelegramToken] = db.query(TelegramToken).filter(
-            TelegramToken.api_id == client.api_id,
-            TelegramToken.is_active == 1,
-            TelegramToken.expires_at > datetime.now()
-        ).first()
+            # 새 토큰 생성
+            token = generate_token(client.api_id, client.api_hash)
+            expires_at = datetime.now() + TELEPROBE_TOKEN_EXPIRATION  # 만료일 설정
 
-        if existing_token:
-            logger.info(f"기존 활성 토큰 발견: {existing_token.token[:10]}...")
-            return RegisterResponse(
-                token=existing_token.token,
-                expires_at=existing_token.expires_at,
-                message="기존 활성 토큰을 반환했습니다."
+            # 데이터베이스에 저장
+            db_token = TelegramToken(
+                token=token,
+                api_id=client.api_id,
+                api_hash=client.api_hash,
+                session_string=client.session_string,
+                phone=client.phone,
+                expires_at=expires_at,
+                is_active=1
             )
+            db.add(db_token)
+            db.commit()
+            db.refresh(db_token)
 
-        # 새 토큰 생성
-        token = generate_token(client.api_id, client.api_hash)
-        expires_at = datetime.now() + TELEPROBE_TOKEN_EXPIRATION  # 만료일 설정
+            logger.info(f"새 토큰 생성 완료: {token[:10]}... (api_id: {client.api_id})")
 
-        # 데이터베이스에 저장
-        db_token = TelegramToken(
-            token=token,
-            api_id=client.api_id,
-            api_hash=client.api_hash,
-            session_string=client.session_string,
-            phone=client.phone,
-            expires_at=expires_at,
-            is_active=1
-        )
-        db.add(db_token)
-        db.commit()
-        db.refresh(db_token)
-
-        logger.info(f"새 토큰 생성 완료: {token[:10]}... (api_id: {client.api_id})")
-
-        return RegisterResponse(
-            token=token,
-            expires_at=expires_at,
-            message="클라이언트가 성공적으로 등록되었습니다."
-        )
+            return RegisterResponse(
+                token=token,
+                expires_at=expires_at,
+                message="클라이언트가 성공적으로 등록되었습니다."
+            )

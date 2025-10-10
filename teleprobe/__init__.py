@@ -46,3 +46,5 @@ Examples:
     async for message in client.iter_messages(channel):
         process_message(message)
 """
+
+from .base import TeleprobeClient

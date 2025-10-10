@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Optional, Union, Callable, Coroutine, Any
 from telethon.events import NewMessage
 from telethon.tl.types import Channel as TelethonChannel
 
+from core.constants import TELEGRAM_API_ID, TELEGRAM_API_HASH, TELEGRAM_SESSION_STRING
 from .constants import Logger
 from .errors import ChannelKeyInvalidError, ChannelNotWatchedError, ChannelAlreadyWatchedError
 
@@ -78,7 +79,7 @@ class ChannelMethods:
             self:'TeleprobeClient',
             channel_key: Union[int, str],
             handler: Optional[Callable[[TelethonChannel], Coroutine[Any, Any, None]]] = None
-    ) -> Optional[TelethonChannel]:
+    ) -> TelethonChannel:
         """채널을 조회하고 선택적으로 핸들러를 실행하는 비동기 메서드
 
         제공된 채널 키를 사용하여 채널을 조회하고, 핸들러가 제공된 경우 실행합니다.
@@ -122,10 +123,8 @@ class ChannelMethods:
             초대 링크나 새로운 채널의 경우 자동으로 참여가 이루어집니다.
 
             This method internally uses connect_channel to connect to the channel,
-            so automatic joining occurs for invite links or new channels.
+            so automatic joining occurs for invite identifiers or new channels.
         """
-        await self.ensure_connected()
-
         channel = await self.connect_channel(channel_key)
 
         if handler and isinstance(handler, Callable) and isinstance(channel, TelethonChannel):
@@ -133,10 +132,11 @@ class ChannelMethods:
 
         return channel
 
+    @classmethod
     async def watch(
-            self: 'TeleprobeClient',
+            cls: type['TeleprobeClient'],
             channel_key: Union[int, str],
-            handler: Optional[Callable[[Any], Coroutine[Any, Any, None]]] = None
+            message_handler: Optional[Callable[[Any], Coroutine[Any, Any, None]]] = None
     ):
         """
         Watches a specified channel for new messages and assigns an event handler to process the
@@ -145,39 +145,46 @@ class ChannelMethods:
         Parameters:
             channel_key (Union[int, str]): The unique identifier of the channel to monitor. It can
                 either be an integer or a string.
-            handler (Optional[Callable[[None], Coroutine[Any, Any, None]]]): An optional asynchronous
+            message_handler (Optional[Callable[[None], Coroutine[Any, Any, None]]]): An optional asynchronous
                 callback that processes new messages from the specified channel.
 
         Raises:
             Any errors that occur during channel retrieval or event handler assignment will be logged.
         """
+        cls.set_global_client(
+            api_id=TELEGRAM_API_ID,
+            api_hash=TELEGRAM_API_HASH,
+            session_string=TELEGRAM_SESSION_STRING
+        )
+        async with cls._global_client as global_client:
+            global_client: TeleprobeClient
+            channel = await global_client.get_channel(channel_key)
+            if channel:
+                with cls._managing_event_handler:
+                    if cls._event_handlers.get(channel.id):
+                        err = ChannelAlreadyWatchedError(f"이미 모니터링 중인 채널입니다. "
+                                                         f"Channel ID: {channel.id}, "
+                                                         f"title: {channel.title}, "
+                                                         f"username: @{channel.username}")
+                        logger.error(err)
+                        raise err
 
-        channel = await self.get_channel(channel_key)
-        if channel:
-            with self._managing_event_handler:
-                if self._event_handlers.get(channel.id):
-                    err = ChannelAlreadyWatchedError(f"이미 모니터링 중인 채널입니다. "
-                                                     f"Channel ID: {channel.id}, "
-                                                     f"title: {channel.title}, "
-                                                     f"username: @{channel.username}")
-                    logger.error(err)
-                    raise err
-
-                self.client.add_event_handler(
-                    callback=handler,
-                    event=NewMessage(chats=channel.id)
-                )
-                self._event_handlers[channel.id] = handler
-                logger.info(f"채널 모니터링을 시작했습니다. "
-                            f"Channel ID: {channel.id}, title: {channel.title}, username: @{channel.username}")
-        else:
-            err = ChannelKeyInvalidError(f"모니터링할 채널에 연결할 수 없습니다. Channel key: {channel_key}")
-            logger.error(err)
-            raise err
+                    global_client.client.add_event_handler(
+                        callback=message_handler,
+                        event=NewMessage(chats=channel.id)
+                    )
+                    cls._event_handlers[channel.id] = message_handler
+                    logger.info(f"채널 모니터링을 시작했습니다. "
+                                f"Channel ID: {channel.id}, title: {channel.title}, username: @{channel.username}")
+            else:
+                err = ChannelKeyInvalidError(f"모니터링할 채널에 연결할 수 없습니다. Channel key: {channel_key}")
+                logger.error(err)
+                raise err
 
 
+    @classmethod
     async def unwatch(
-            self: 'TeleprobeClient',
+            cls: type['TeleprobeClient'],
             channel_key: Union[int, str]
     ):
         """특정 채널 모니터링을 중단하는 함수입니다.
@@ -185,29 +192,35 @@ class ChannelMethods:
         Args:
             channel_key (int|str): 모니터링을 중단할 채널의 ID 또는 키
         """
-        channel = await self.get_channel(channel_key)
-        if channel:
-            channel_id = channel.id
-            channel_description = f"Channel ID: {channel_id}"\
-                                  f", title: {channel.title}, username: @{channel.username}" if channel else ""
+        cls.set_global_client(
+            api_id=TELEGRAM_API_ID,
+            api_hash=TELEGRAM_API_HASH,
+            session_string=TELEGRAM_SESSION_STRING
+        )
+        async with cls._global_client as global_client:
+            channel = await global_client.get_channel(channel_key)
+            if channel:
+                channel_id = channel.id
+                channel_description = f"Channel ID: {channel_id}"\
+                                      f", title: {channel.title}, username: @{channel.username}" if channel else ""
 
-        elif isinstance(channel_key, int):
-            channel_id = channel_key # 채널이 발견되지 않았을 경우, 채널 ID로 대신 이벤트 핸들러 검색 시도
-            channel_description = f"Channel ID: {channel_id}"
-        else:
-            err = ChannelKeyInvalidError(f"채널에 더이상 접근이 불가능하거나, 잘못된 채널 식별자를 입력했습니다. "
-                                         f"Channel key: {channel_key}")
-            logger.error(err)
-            raise err
-
-        with self._managing_event_handler:
-            # 이벤트 핸들러 취소 및 제거
-            if event_handler := self._event_handlers.get(channel_id):
-                self.client.remove_event_handler(event_handler)
-                del self._event_handlers[channel_id]
-                logger.info("채널 모니터링을 중단했습니다. " + channel_description)
+            elif isinstance(channel_key, int):
+                channel_id = channel_key # 채널이 발견되지 않았을 경우, 채널 ID로 대신 이벤트 핸들러 검색 시도
+                channel_description = f"Channel ID: {channel_id}"
             else:
-                err = ChannelNotWatchedError("모니터링을 중단하려는 채널은 현재 모니터링 중이 아닙니다. " + channel_description)
+                err = ChannelKeyInvalidError(f"채널에 더이상 접근이 불가능하거나, 잘못된 채널 식별자를 입력했습니다. "
+                                             f"Channel key: {channel_key}")
                 logger.error(err)
                 raise err
+
+            with cls._managing_event_handler:
+                # 이벤트 핸들러 취소 및 제거
+                if event_handler := cls._event_handlers.get(channel_id):
+                    global_client.client.remove_event_handler(event_handler)
+                    del cls._event_handlers[channel_id]
+                    logger.info("채널 모니터링을 중단했습니다. " + channel_description)
+                else:
+                    err = ChannelNotWatchedError("모니터링을 중단하려는 채널은 현재 모니터링 중이 아닙니다. " + channel_description)
+                    logger.error(err)
+                    raise err
 

@@ -14,7 +14,9 @@ data validation, serialization, and MongoDB storage functionality.
 from datetime import datetime
 from typing import Optional, Any
 
+import pymongo
 from pydantic import Field, ConfigDict
+from pymongo.errors import DuplicateKeyError
 from telethon.tl.types import Message as TelethonMessage
 
 from utils import Logger
@@ -23,6 +25,10 @@ from .connections import MongoCollections
 from .types import SenderType
 
 logger = Logger(__name__)
+
+protected_fields = [
+    "updated_at"
+]
 
 class Message(BaseMongoObject):
     """텔레그램 메시지를 나타내는 MongoDB 문서 모델 (Telethon Message 기반)
@@ -40,13 +46,13 @@ class Message(BaseMongoObject):
     Attributes:
         chat_id (Optional[int]): 메시지가 속한 채팅(채널/그룹)의 ID
                                ID of the chat (channel/group) the message belongs to
-        id (int): 텔레그램 채팅 내에서의 메시지 고유 번호
+        message_id (int): 텔레그램 채팅 내에서의 메시지 고유 번호
                  Unique message number within the Telegram chat
         message (Optional[str]): 메시지의 텍스트 내용 (최대 4096자)
                                Text content of the message (max 4096 characters)
         date (datetime): 메시지가 전송된 시간
                         Time when the message was sent
-        collected_at (datetime): 메시지를 수집한 시각
+        updated_at (datetime): 메시지를 수집한 시각
                                Time when the message was collected
         from_id (Optional[int]): 메시지를 보낸 사용자 또는 채널의 ID
                                ID of the user or channel that sent the message
@@ -71,7 +77,7 @@ class Message(BaseMongoObject):
         media (Any): 첨부된 미디어 파일 정보
                     Attached media file information
         entities (Any): 메시지 내 특수 요소들 (링크, 멘션, 포맷팅 등)
-                       Special elements in message (links, mentions, formatting, etc.)
+                       Special elements in message (identifiers, mentions, formatting, etc.)
         edit_date (Optional[datetime]): 메시지가 마지막으로 편집된 시간
                                       Time when message was last edited
         edit_hide (bool): 편집 표시를 숨길지 여부
@@ -112,7 +118,7 @@ class Message(BaseMongoObject):
     )
 
     # === 기본 정보 ===
-    id: int = Field(
+    message_id: int = Field(
         title="메시지 ID",
         description="텔레그램 채팅 내에서의 메시지 고유 번호",
         examples=[12345],
@@ -134,7 +140,7 @@ class Message(BaseMongoObject):
     )
 
     # === 커스텀 정보 ===
-    collected_at: datetime = Field(
+    updated_at: datetime = Field(
         default_factory=datetime.now,
         title="수집 시각",
         description="채팅을 발견하고 수집한 시각"
@@ -286,7 +292,7 @@ class Message(BaseMongoObject):
         },
         json_schema_extra = {
             "example": {
-                "id": 12345,
+                "message_id": 12345,
                 "message": "안녕하세요! 이것은 예시 메시지입니다.",
                 "date": "2024-01-01T12:00:00Z",
                 "from_id": 123456789,
@@ -357,7 +363,7 @@ class Message(BaseMongoObject):
             and require separate processing logic in the future.
         """
         return cls(
-            id=telethon_message.id,
+            message_id=telethon_message.id,
             message=telethon_message.message,
             date=telethon_message.date,
             from_id=sender_id,
@@ -378,45 +384,11 @@ class Message(BaseMongoObject):
             entities=[],
         )
 
-    def __eq__(self, other):
-        """두 메시지 객체의 동등성을 검사하는 메서드
+    def model_dump_only_insert(self):
+        return {k: v for k, v in self.model_dump().items() if k in protected_fields}
 
-        메시지 ID, 채팅 ID, 메시지 내용을 기준으로 두 메시지가 동일한지 판단합니다.
-        MongoDB에서 중복 저장을 방지하거나 메시지 비교 시 사용됩니다.
-
-        Method to check equality between two message objects
-
-        Determines if two messages are identical based on message ID, chat ID, and message content.
-        Used to prevent duplicate storage in MongoDB or when comparing messages.
-
-        Args:
-            other (Message): 비교할 다른 Message 객체
-                           Another Message object to compare with
-
-        Returns:
-            bool: 두 메시지가 동일하면 True, 다르면 False
-                 True if messages are identical, False otherwise
-
-        Examples:
-            message1 = Message(id=1, chat_id=100, message="Hello")
-            message2 = Message(id=1, chat_id=100, message="Hello")
-            message3 = Message(id=2, chat_id=100, message="Hello")
-
-            print(message1 == message2)  # True
-            print(message1 == message3)  # False
-
-        Note:
-            동등성 검사는 다음 3가지 속성을 모두 비교합니다:
-            - id: 메시지 고유 번호
-            - chat_id: 채팅방 ID
-            - message: 메시지 텍스트 내용
-
-            Equality check compares all three attributes:
-            - id: Unique message number
-            - chat_id: Chat room ID  
-            - message: Message text content
-        """
-        return self.id == other.id and self.chat_id == other.chat_id and self.message == other.message
+    def model_dump_only_update(self):
+        return {k: v for k, v in self.model_dump().items() if k not in protected_fields}
 
     def store(self):
         """메시지를 MongoDB chats 컬렉션에 저장하는 메서드
@@ -436,7 +408,7 @@ class Message(BaseMongoObject):
                                         Raised on MongoDB connection or write errors
 
         Examples:
-            message = Message(id=123, chat_id=456, message="Hello World")
+            message = Message(message_id=123, chat_id=456, message="Hello World")
             message.store()  # MongoDB에 저장됨
 
             # 동일한 메시지 다시 저장 시도
@@ -455,19 +427,25 @@ class Message(BaseMongoObject):
             5. 기존 문서가 없으면 바로 새 문서 삽입
 
             Storage logic:
-            1. Search for document with same id and chat_id in MongoDB
+            1. Search for document with same message_id and chat_id in MongoDB
             2. Compare content if existing document found
             3. Skip storage if content is identical
             4. Log modification and insert new document if content differs
             5. Insert new document directly if no existing document
         """
         chat_collection = MongoCollections().chats
-        with self._lock:
-            existing_message = chat_collection.find_one({"id": self.id, "chat_id": self.chat_id})
-            if existing_message and existing_message.pop("_id", None):
-                if self == Message(**existing_message):
-                    return
-                else:
-                    logger.debug(f"기존에 저장된 메세지 중 수정된 메세지가 발견되었습니다. "
-                                 f"Message ID: {self.id}, Chat|Channel ID: {self.chat_id}")
-            chat_collection.insert_one(self.model_dump())
+        try:
+            result = chat_collection.find_one_and_update(
+                filter={"message_id": self.message_id, "chat_id": self.chat_id, "message": self.message},
+                update={"$set": self.model_dump_only_update(),
+                        "$setOnInsert": self.model_dump_only_insert()},
+                sort=[("updated_at", pymongo.DESCENDING)],
+                upsert=True,
+                return_document=pymongo.ReturnDocument.BEFORE,
+            )
+
+            if result:
+                logger.info(f"기존에 이미 저장된 메시지가 발견되었습니다."
+                            f"Message ID: {self.message_id}, Chat|Channel ID: {self.chat_id}")
+        except DuplicateKeyError:
+            logger.warning(f"메시지 정보의 동시 입력이 감지되었습니다. Channel ID: {self.message_id}, Chat|Channel ID: {self.chat_id}")

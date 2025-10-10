@@ -49,7 +49,8 @@ async def post_messages_from_channel(
                     detail=f"채널 정보를 찾을 수 없습니다: {channel_key}"
                 )
 
-            client.iter_messages(channel_entity, MessageHandler())
+            async for _ in client.iter_messages(channel_entity, MessageHandler()):
+                pass
             logger.info("채널 내의 모든 메세지를 수집하고 DB에 저장했습니다.")
             return SuccessfulResponse(message=f"채널 내의 모든 메세지를 수집하고 DB에 저장했습니다. "
                                   f"Channel ID: {channel_entity.id}, Channel Type: {type(channel_entity)}")
