@@ -160,7 +160,7 @@ class ChannelMethods:
                                                      f"Channel ID: {channel.id}, "
                                                      f"title: {channel.title}, "
                                                      f"username: @{channel.username}")
-                    logger.error(err.message)
+                    logger.error(err)
                     raise err
 
                 self.client.add_event_handler(
@@ -172,7 +172,7 @@ class ChannelMethods:
                             f"Channel ID: {channel.id}, title: {channel.title}, username: @{channel.username}")
         else:
             err = ChannelKeyInvalidError(f"모니터링할 채널에 연결할 수 없습니다. Channel key: {channel_key}")
-            logger.error(err.message)
+            logger.error(err)
             raise err
 
 
@@ -188,12 +188,16 @@ class ChannelMethods:
         channel = await self.get_channel(channel_key)
         if channel:
             channel_id = channel.id
+            channel_description = f"Channel ID: {channel_id}"\
+                                  f", title: {channel.title}, username: @{channel.username}" if channel else ""
+
         elif isinstance(channel_key, int):
             channel_id = channel_key # 채널이 발견되지 않았을 경우, 채널 ID로 대신 이벤트 핸들러 검색 시도
+            channel_description = f"Channel ID: {channel_id}"
         else:
             err = ChannelKeyInvalidError(f"채널에 더이상 접근이 불가능하거나, 잘못된 채널 식별자를 입력했습니다. "
                                          f"Channel key: {channel_key}")
-            logger.error(err.message)
+            logger.error(err)
             raise err
 
         with self._managing_event_handler:
@@ -201,14 +205,9 @@ class ChannelMethods:
             if event_handler := self._event_handlers.get(channel_id):
                 self.client.remove_event_handler(event_handler)
                 del self._event_handlers[channel_id]
-                logger.info(f"채널 모니터링을 중단했습니다. "
-                            f"Channel ID: {channel_id}, title: {channel.title}, username: @{channel.username}")
+                logger.info("채널 모니터링을 중단했습니다. " + channel_description)
             else:
-                err = ChannelNotWatchedError(
-                    f"모니터링을 중단하려는 채널은 현재 모니터링 중이 아닙니다. "
-                    f"Channel ID: {channel_id}, title: {channel.title}, username: @{channel.username}"
-                )
+                err = ChannelNotWatchedError("모니터링을 중단하려는 채널은 현재 모니터링 중이 아닙니다. " + channel_description)
                 logger.error(err)
                 raise err
-
 

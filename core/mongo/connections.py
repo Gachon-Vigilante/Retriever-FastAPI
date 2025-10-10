@@ -75,7 +75,10 @@ class MongoCollections:
         """
         if db and not isinstance(db, pymongo.database.Database):
             raise TypeError("Database object must be provided with pymongo.database.Database type.")
-        self.db = db or mongo_client()[os.getenv('MONGO_DB_NAME')]
+        db_name = os.getenv('MONGO_DB_NAME')
+        if not db and not db_name:
+            raise EnvironmentError("To use default MongoDB instance, MONGO_DB_NAME environment variable must be set.")
+        self.db = db or mongo_client()[db_name]
 
     @property
     @lru_cache(maxsize=1)
@@ -117,6 +120,30 @@ class MongoCollections:
     def channel_info(self) -> pymongo.collection.Collection:
         return self.db.channel_info
 
+    @property
+    @lru_cache(maxsize=1)
+    def posts(self) -> pymongo.collection.Collection:
+        """웹 게시물을 저장하는 MongoDB 컬렉션에 접근합니다.
+
+        온라인에서 크롤링된 웹 게시물들을 저장하는 컬렉션입니다.
+        LRU 캐시를 통해 반복 접근 시 성능을 최적화합니다.
+
+        Access MongoDB collection for storing online web posts.
+
+        Collection that stores posts collected from web(e.g. Google, X) by crawling.
+        Performance is optimized for repeated access through LRU cache.
+
+        Returns:
+            pymongo.collection.Collection: posts 컬렉션 객체
+                                          posts collection object
+        """
+        return self.db.posts
+
+    @property
+    @lru_cache(maxsize=1)
+    def analysis_jobs(self) -> pymongo.collection.Collection:
+        """Gemini 배치 작업 컬렉션"""
+        return self.db.analysis_jobs
 
 _mongo_client: Optional[pymongo.MongoClient] = None
 

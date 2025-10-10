@@ -11,7 +11,7 @@ in MongoDB collections. It inherits from Pydantic BaseModel to provide
 data validation and serialization features, and automatically handles
 MongoDB's ObjectId field.
 """
-
+import threading
 from typing import Optional, Union
 
 from bson import ObjectId
@@ -72,3 +72,8 @@ class BaseMongoObject(BaseModel):
         serialization_alias="_id",
         exclude=True
     )
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls._lock = threading.Lock()  # 각 서브클래스마다 새로운 lock
+
