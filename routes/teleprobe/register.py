@@ -196,14 +196,13 @@ async def register(
     """
     with get_db() as db:
         # TeleprobeClient 생성 (자동으로 연결 테스트)
-        logger.info(f"TeleprobeClient 등록 시작: api_id={client.api_id}")
         with TeleprobeClient(
             api_id=credentials.api_id,
             api_hash=credentials.api_hash,
             session_string=credentials.session_string,
             phone=credentials.phone
         ) as client:
-
+            logger.info(f"TeleprobeClient 등록 시작: api_id={client.api_id}")
             # 기존 토큰 확인 (같은 api_id로 이미 등록된 경우)
             existing_token: Optional[TelegramToken] = db.query(TelegramToken).filter(
                 TelegramToken.api_id == client.api_id,

@@ -50,6 +50,16 @@ class TelegramPromotion(BaseModel):
         description="List of Telegram channel identifiers associated with the promotion content."
     )
 
+class PostSimilarity(BaseModel):
+    post_id: str = Field(
+        title="Post ID (ObjectID)",
+        description="ID of the post to compare with",
+    )
+    similarity: float = Field(
+        title="Similarity",
+        description="Similarity score between the post and the comparison post",
+    )
+
 class PostAnalysisResult(BaseModel):
     drugs_related: bool = Field(
         default=False,
@@ -118,6 +128,7 @@ class PostFields(StrEnum):
     published_at = "published_at"
     discovered_at = "discovered_at"
     updated_at = "updated_at"
+    similarities = "similarities"
 
 class Post(BaseMongoObject):
     title: str = Field(
@@ -174,6 +185,12 @@ class Post(BaseMongoObject):
         default_factory=datetime.now,
         title="Updated Date",
         description="Date when the content was last updated",
+    )
+
+    similarities: list[PostSimilarity] = Field(
+        default_factory=list,
+        title="Similar Posts with Similarity Score",
+        description="List of posts and its similarity scores similar to the current post"
     )
 
     def __eq__(self, other):
