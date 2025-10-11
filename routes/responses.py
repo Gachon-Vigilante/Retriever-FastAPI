@@ -145,6 +145,7 @@ class TeleprobeHTTPException:
         ChannelNotWatchedError: HTTP_404_NOT_FOUND,
         UsernameNotFoundError: HTTP_404_NOT_FOUND,
         ConnectionError: HTTP_503_SERVICE_UNAVAILABLE,
+        ChannelNotJoinedError: HTTP_403_FORBIDDEN,
     }
     _exception_detail_map: Dict[type[Exception], str]= {
         ConnectionError: "텔레그램 서비스에 연결할 수 없는 상태입니다."
