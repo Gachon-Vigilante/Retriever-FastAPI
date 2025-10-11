@@ -89,15 +89,12 @@ class MongoCollections:
 
         텔레그램 채널의 메타데이터, 상태, 설정 등을 저장하는 컬렉션입니다.
         LRU 캐시를 통해 반복 접근 시 성능을 최적화합니다.
-
         Access MongoDB collection for storing channel information.
-
         Collection that stores Telegram channel metadata, status, settings, etc.
         Performance is optimized for repeated access through LRU cache.
-
         Returns:
             pymongo.collection.Collection: channels 컬렉션 객체
-                                          channels collection object
+                                            channels collection object
         """
         return self.db.channels
 
@@ -119,6 +116,31 @@ class MongoCollections:
                                           messages collection object
         """
         return self.db.messages
+
+    @property
+    @lru_cache(maxsize=1)
+    def post_similarity(self) -> pymongo.collection.Collection:
+        return self.db.post_similarity
+
+    @property
+    @lru_cache(maxsize=1)
+    def drugs(self) -> pymongo.collection.Collection:
+        return self.db.drugs
+
+    @property
+    @lru_cache(maxsize=1)
+    def channel_data(self) -> pymongo.collection.Collection:
+        return self.db.channel_data
+
+    @property
+    @lru_cache(maxsize=1)
+    def channel_similarity(self) -> pymongo.collection.Collection:
+        return self.db.channel_similarity
+
+    @property
+    @lru_cache(maxsize=1)
+    def channel_info(self) -> pymongo.collection.Collection:
+        return self.db.channel_info
 
     @property
     @lru_cache(maxsize=1)
