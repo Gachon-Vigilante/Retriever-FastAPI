@@ -6,7 +6,7 @@
 
 Telegram Message Processing Methods Module - Message iteration and processing functionality
 
-This module provides functionality to iterate and process messages from Telegram channels or chats.
+This module provides functionality to iterate and process messages from Telegram channels or messages.
 It includes utility methods for efficiently traversing large amounts of message data
 and applying custom handlers to each message.
 """
@@ -37,7 +37,7 @@ class MessageMethods:
 
     Collection class of methods for Telegram message iteration and processing
 
-    Provides functionality to efficiently iterate and process messages from Telegram channels or chats.
+    Provides functionality to efficiently iterate and process messages from Telegram channels or messages.
     Used as a mixin for TeleprobeClient to extend message-related functionality,
     and can process large amounts of message data in streaming fashion.
 

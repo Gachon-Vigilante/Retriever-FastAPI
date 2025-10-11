@@ -100,7 +100,7 @@ class MongoCollections:
 
     @property
     @lru_cache(maxsize=1)
-    def chats(self) -> pymongo.collection.Collection:
+    def messages(self) -> pymongo.collection.Collection:
         """채팅 메시지를 저장하는 MongoDB 컬렉션에 접근합니다.
 
         텔레그램 채팅방과 채널에서 수집된 메시지들을 저장하는 컬렉션입니다.
@@ -112,10 +112,10 @@ class MongoCollections:
         Performance is optimized for repeated access through LRU cache.
 
         Returns:
-            pymongo.collection.Collection: chats 컬렉션 객체
-                                            chats collection object
+            pymongo.collection.Collection: messages 컬렉션 객체
+                                          messages collection object
         """
-        return self.db.chats
+        return self.db.messages
 
     @property
     @lru_cache(maxsize=1)
@@ -234,7 +234,7 @@ collections = MongoCollections()
 default_db = mongo_client()[db_name]
 collection_names = [
     collections.channels.name,
-    collections.chats.name,
+    collections.messages.name,
     collections.posts.name,
     collections.analysis_jobs.name,
 ]
@@ -245,14 +245,14 @@ for collection_name in collection_names:
         pass
 
 collections.channels.create_index([
-    ("id", 1),
+    ("channel_id", 1),
     ("username", 1),
     ("title", 1)
 ], unique=True)
 
-collections.chats.create_index([
+collections.messages.create_index([
     ("message_id", 1),
-    ("chat_id", 1),
+    ("channel_id", 1),
     ("edit_date", 1),
 ], unique=True)
 

@@ -44,7 +44,7 @@ class Message(BaseMongoObject):
     and provides functionality to store and retrieve from MongoDB.
 
     Attributes:
-        chat_id (Optional[int]): 메시지가 속한 채팅(채널/그룹)의 ID
+        channel_id (Optional[int]): 메시지가 속한 채팅(채널/그룹)의 ID
                                ID of the chat (channel/group) the message belongs to
         message_id (int): 텔레그램 채팅 내에서의 메시지 고유 번호
                  Unique message number within the Telegram chat
@@ -110,7 +110,7 @@ class Message(BaseMongoObject):
     """
 
     # === 채팅 정보 ===
-    chat_id: Optional[int] = Field(
+    channel_id: Optional[int] = Field(
         default=None,
         title="채팅 ID",
         description="메시지가 속한 채팅(채널/그룹)의 ID",
@@ -296,7 +296,7 @@ class Message(BaseMongoObject):
                 "message": "안녕하세요! 이것은 예시 메시지입니다.",
                 "date": "2024-01-01T12:00:00Z",
                 "from_id": 123456789,
-                "chat_id": -1001234567890,
+                "channel_id": -1001234567890,
                 "out": False,
                 "mentioned": False,
                 "media": None,
@@ -351,7 +351,7 @@ class Message(BaseMongoObject):
             message = Message.from_telethon(
                 telethon_msg, 
                 sender_id=12345, 
-                chat_id=67890,
+                channel_id=67890,
                 sender_type=SenderType.USER
             )
 
@@ -368,7 +368,7 @@ class Message(BaseMongoObject):
             date=telethon_message.date,
             from_id=sender_id,
             sender_type=sender_type,
-            chat_id=chat_id,
+            channel_id=chat_id,
             out=telethon_message.out,
             mentioned=telethon_message.mentioned,
             media_unread=telethon_message.media_unread,
@@ -391,13 +391,13 @@ class Message(BaseMongoObject):
         return {k: v for k, v in self.model_dump().items() if k not in protected_fields}
 
     def store(self):
-        """메시지를 MongoDB chats 컬렉션에 저장하는 메서드
+        """메시지를 MongoDB messages 컬렉션에 저장하는 메서드
 
         현재 메시지 인스턴스를 MongoDB에 저장합니다. 중복 저장을 방지하기 위해
         동일한 ID와 채팅 ID를 가진 기존 메시지를 확인하고, 내용이 다른 경우에만 저장합니다.
         메시지가 수정된 경우 디버그 로그를 남깁니다.
 
-        Method to store the message in MongoDB chats collection
+        Method to store the message in MongoDB messages collection
 
         Stores the current message instance in MongoDB. To prevent duplicate storage,
         it checks for existing messages with the same ID and chat ID, and only stores
@@ -408,7 +408,7 @@ class Message(BaseMongoObject):
                                         Raised on MongoDB connection or write errors
 
         Examples:
-            message = Message(message_id=123, chat_id=456, message="Hello World")
+            message = Message(message_id=123, channel_id=456, message="Hello World")
             message.store()  # MongoDB에 저장됨
 
             # 동일한 메시지 다시 저장 시도
@@ -427,16 +427,16 @@ class Message(BaseMongoObject):
             5. 기존 문서가 없으면 바로 새 문서 삽입
 
             Storage logic:
-            1. Search for document with same message_id and chat_id in MongoDB
+            1. Search for document with same message_id and channel_id in MongoDB
             2. Compare content if existing document found
             3. Skip storage if content is identical
             4. Log modification and insert new document if content differs
             5. Insert new document directly if no existing document
         """
-        chat_collection = MongoCollections().chats
+        chat_collection = MongoCollections().messages
         try:
             result = chat_collection.find_one_and_update(
-                filter={"message_id": self.message_id, "chat_id": self.chat_id, "message": self.message},
+                filter={"message_id": self.message_id, "channel_id": self.channel_id, "message": self.message},
                 update={"$set": self.model_dump_only_update(),
                         "$setOnInsert": self.model_dump_only_insert()},
                 sort=[("updated_at", pymongo.DESCENDING)],
@@ -446,6 +446,6 @@ class Message(BaseMongoObject):
 
             if result:
                 logger.info(f"기존에 이미 저장된 메시지가 발견되었습니다."
-                            f"Message ID: {self.message_id}, Chat|Channel ID: {self.chat_id}")
+                            f"Message ID: {self.message_id}, Chat|Channel ID: {self.channel_id}")
         except DuplicateKeyError:
-            logger.warning(f"메시지 정보의 동시 입력이 감지되었습니다. Channel ID: {self.message_id}, Chat|Channel ID: {self.chat_id}")
+            logger.warning(f"메시지 정보의 동시 입력이 감지되었습니다. Channel ID: {self.message_id}, Chat|Channel ID: {self.channel_id}")

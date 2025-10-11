@@ -34,11 +34,10 @@ class Channel(BaseMongoObject):
     """
 
     # === 기본 식별 정보 ===
-    id: int = Field(
+    channel_id: int = Field(
         title="채널 ID",
         description="텔레그램 채널의 고유 식별자",
         examples=[1234567890],
-        serialization_alias="id"
     )
 
     access_hash: Optional[int] = Field(
@@ -329,7 +328,7 @@ class Channel(BaseMongoObject):
                 ))
 
         return cls(
-            id=telethon_channel.id,
+            channel_id=telethon_channel.id,
             access_hash=telethon_channel.access_hash,
             title=telethon_channel.title,
             username=telethon_channel.username,
@@ -364,7 +363,7 @@ class Channel(BaseMongoObject):
         },
         json_schema_extra={
             "example": {
-                "id": 1234567890,
+                "channel_id": 1234567890,
                 "title": "테스트 채널",
                 "username": "testchannel",
                 "date": "2024-01-01T00:00:00Z",
@@ -388,7 +387,7 @@ class Channel(BaseMongoObject):
         channel_collection = MongoCollections().channels
         try:
             result = channel_collection.find_one_and_update(
-                {"id": self.id, "username": self.username, "title": self.title},
+                {"id": self.channel_id, "username": self.username, "title": self.title},
                 {"$set": self.model_dump_only_update(),
                  "$setOnInsert": self.model_dump_only_insert(),},
                 sort=[("checked_at", -1)],
@@ -396,10 +395,10 @@ class Channel(BaseMongoObject):
                 return_document=ReturnDocument.BEFORE
             )
             if result:
-                logger.info(f"이미 존재하는 채널이 발견되었습니다. 채널 정보를 업데이트합니다. Channel ID: {self.id}")
+                logger.info(f"이미 존재하는 채널이 발견되었습니다. 채널 정보를 업데이트합니다. Channel ID: {self.channel_id}")
             else:
                 logger.info(f"새로운 채널, 또는 핵심 정보가 변경된 채널을 수집하여 새 아카이브를 생성했습니다. "
-                            f"Channel ID: {self.id}, username: {self.username}, title: {self.title}")
+                            f"Channel ID: {self.channel_id}, username: {self.username}, title: {self.title}")
 
         except DuplicateKeyError:
-            logger.info(f"채널 정보의 동시 생성이 감지되었습니다. Channel ID: {self.id}")
+            logger.info(f"채널 정보의 동시 생성이 감지되었습니다. Channel ID: {self.channel_id}")
