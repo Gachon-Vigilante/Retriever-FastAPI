@@ -5,7 +5,8 @@ from celery import shared_task
 
 from core.mongo.connections import MongoCollections
 from core.mongo.post import Post, PostFields
-from crawlers.base import WebpageCrawler, CrawlerResult
+from core.neo4j.ogm import PostNode
+from crawlers.base import WebpageCrawler
 from genai.analyzers.post import PostAnalyzer
 from utils import Logger
 from .analyze import analyze_batch_task
@@ -19,13 +20,12 @@ def crawl_page_task(post_id: str):
     async def _run():
         post_collection = MongoCollections().posts
         doc = post_collection.find_one(
-            {"_id": ObjectId(post_id)},
-            {PostFields.title: 1, PostFields.link: 1}
+            {"_id": ObjectId(post_id)}
         )
         if not doc:
             logger.error(f"_id에 해당하는 게시글이 MongoDB에 없습니다. posts `_id`: {post_id}")
             return
-        post = Post.from_dict(doc)
+        post = Post.from_mongo(doc, autofill=True)
 
         crawler = WebpageCrawler()
 

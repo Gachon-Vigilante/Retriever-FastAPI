@@ -2,9 +2,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from typing import List
 
-from crawlers.google import GoogleSearchEngine
 from crawlers.serpapi import SerpApiSearchEngine
-from handlers.webpage import PostHandler
 from routes.responses import SuccessfulResponse
 from tasks.pipeline.search import search_pages_task
 from utils import Logger
