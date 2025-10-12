@@ -167,6 +167,12 @@ class MongoCollections:
         """Gemini 배치 작업 컬렉션"""
         return self.db.analysis_jobs
 
+    @property
+    @lru_cache(maxsize=1)
+    def drugs(self) -> pymongo.collection.Collection:
+        """마약 관련 정보 컬렉션"""
+        return self.db.drugs
+
 _mongo_client: Optional[pymongo.MongoClient] = None
 
 @lru_cache(maxsize=1)
