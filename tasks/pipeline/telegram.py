@@ -5,9 +5,12 @@ from urllib.parse import urljoin
 import requests
 from bson import ObjectId
 from celery import shared_task
+from pymongo import ReturnDocument
 
 from core.constants import TELEGRAM_API_ID, TELEGRAM_API_HASH, TELEGRAM_SESSION_STRING
 from core.mongo.connections import MongoCollections
+from core.mongo.post import PostFields
+from core.neo4j.ogm import PostNode, ChannelNode, Promotes
 from handlers import ChannelHandler, MessageHandler
 from teleprobe import TeleprobeClient
 from teleprobe.errors import ACCEPTABLE_EXCEPTIONS
@@ -36,16 +39,20 @@ def telegram_channel_task(channel_identifier: str, post_id: str | None = None, m
                 channel = await client.get_channel(channel_identifier, ChannelHandler()) # 채널 정보 수집 후 저장
                 logger.info(f"채널 정보를 수집(또는 업데이트)했습니다. channel key: {channel_identifier}")
                 if post_id and mongo_path:
-                    result = post_collection.update_one(
-                        {"_id": post_id},
-                        {"$set": {mongo_path+".channel_id": channel.channel_id}}
+                    result = post_collection.find_one_and_update(
+                        filter={"_id": post_id},
+                        update={"$set": {mongo_path+".channel_id": channel.channel_id}},
+                        projection={"_id": 1, PostFields.link: 1},
+                        return_document=ReturnDocument.AFTER
                     )
-                    if result.modified_count == 1:
+                    Promotes.merge(
+                        post=PostNode.from_mongo(result),
+                        channel=ChannelNode(channel_id=channel.channel_id),
+                    )
+                    if result:
                         logger.info(f"채널 식별자에 연결된 채널 ID를 MongoDB에 입력했습니다. post ID: {post_id}, path: {mongo_path}")
-                    elif result.matched_count == 0:
-                        logger.error(f"post ID 또는 mongoDB path가 잘못 입력되었습니다. post ID: {post_id}, path: {mongo_path}")
                     else:
-                        logger.error(f"채널 식별자에 연결된 채널 ID를 찾았지만 MongoDB에 저장할 수 없었습니다. post ID: {post_id}, path: {mongo_path}")
+                        logger.error(f"post ID 또는 mongoDB path가 잘못 입력되었습니다. post ID: {post_id}, path: {mongo_path}")
 
                 response = requests.post(
                     url=urljoin(os.getenv("FASTAPI_HOST"), f"/api/v1/channel/{channel.channel_id}/monitor"),

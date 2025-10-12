@@ -16,6 +16,7 @@ from pymongo.synchronous.client_session import ClientSession
 
 from core.mongo.connections import MongoCollections, mongo_client
 from core.mongo.post import Post, PostAnalysisResult, TelegramPromotion, PostFields
+from core.neo4j.ogm import PostNode
 from utils import Logger
 from ..models import prompts
 
@@ -524,13 +525,21 @@ class PostAnalyzer:
                                  f"result line: {line}, response text: {response}, error: {e}")
                     continue
 
-                posts_col.update_one(
-                    {"_id": ObjectId(key)},
-                    {"$set": {
+                post_doc = posts_col.find_one_and_update(
+                    filter={"_id": ObjectId(key)},
+                    update={"$set": {
                         PostFields.analysis: post_analysis_result.model_dump(),
                         PostFields.updated_at: datetime.now()
-                    }}
+                    }},
+                    projection={
+                        PostFields.html: 0,
+                        PostFields.analysis_job_id: 0,
+                        PostFields.similarities: 0
+                    },
+                    return_document=ReturnDocument.AFTER,
                 )
+                PostNode.from_mongo(post_doc).merge()
+
                 job_completion_result.completed_request_count += 1
 
             jobs_col.update_one(

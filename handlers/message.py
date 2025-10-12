@@ -16,8 +16,10 @@ from typing import Union, Any
 
 from telethon.tl.types import Message as TelethonMessage, User as TelethonUser, Channel as TelethonChannel
 
+from core.mongo.drugs import find_all_argots_in_text
 from core.mongo.message import Message
 from core.mongo.types import SenderType
+from core.neo4j.ogm import Sells, ChannelNode, ArgotNode
 from utils import Logger
 
 
@@ -127,6 +129,13 @@ class MessageHandler:
             chat_id=chat_id,
             sender_type=sender_type
         ).store()
+
+        for argot_search_result in find_all_argots_in_text(message.message):
+            Sells.merge(
+                channel=ChannelNode(channel_id=chat_id),
+                argot=ArgotNode(name=argot_search_result.matched_argot),
+                message_id=message.id
+            )
 
 
 class FakeMessageHandler(MessageHandler):
