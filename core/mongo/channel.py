@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from enum import StrEnum
 from typing import Optional, List, Any
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
@@ -27,6 +28,20 @@ class ChannelRestrictionReason(BaseModel):
     text: str = Field(description="제한 메시지")
 
 
+class ChannelFields(StrEnum):
+    channel_id = "channel_id"
+    access_hash = "access_hash"
+    title = "title"
+    username = "username"
+    status = "status"
+    date = "date"
+    updated_at = "updated_at"
+    checked_at = "checked_at"
+    left = "left"
+    broadcast = "broadcast"
+    verified = "verified"
+
+
 class Channel(BaseMongoObject):
     """텔레그램 채널 정보 모델
 
@@ -44,7 +59,6 @@ class Channel(BaseMongoObject):
         default=None,
         title="액세스 해시",
         description="채널 접근을 위한 해시값",
-        serialization_alias="accessHash"
     )
 
     title: str = Field(
