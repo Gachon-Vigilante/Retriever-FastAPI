@@ -1,13 +1,12 @@
 # 필요한 라이브러리 추가
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.feature_extraction.text import TfidfVectorizer # TF-IDF Vectorizer 추가
+from sklearn.feature_extraction.text import TfidfVectorizer
 from bs4 import BeautifulSoup
 import numpy as np
 from collections import Counter
 from pymongo import UpdateOne
 from core.mongo.connections import MongoCollections
-# from server.cypher import run_cypher, Neo4j # Neo4j 관련 코드는 주석 처리
 from utils import Logger
 from .newpost_similarity import insert_post_similarity
 
@@ -18,9 +17,9 @@ channel_collection = mongo.channel_info
 
 logger = Logger(__name__)
 
-# Ko-SBERT 모델 로드
+# 임베딩 모델을 'upskyy/bge-m3-korean'으로 업그레이드
 try:
-    model = SentenceTransformer('snunlp/KR-SBERT-V40K-klueNLI-augSTS')
+    model = SentenceTransformer('upskyy/bge-m3-korean')
 except Exception as e:
     print(f"Error loading SentenceTransformer model: {e}")
     raise
@@ -33,6 +32,7 @@ def preprocess_text(text):
 def get_bert_embedding(text: str) -> np.ndarray:
     if not text or not text.strip():
         return np.zeros(model.get_sentence_embedding_dimension(), dtype=np.float64)
+    # BGE-M3 모델은 긴 텍스트 처리에 유리하므로, 별도의 지시어(instruction) 없이 바로 사용
     return model.encode(text, convert_to_numpy=True).astype(np.float64)
 
 def fetch_channel_catalog(channel_id: int):
@@ -133,25 +133,6 @@ def similarity(threshold=0.7):
                 "similarPost": str(other_doc["_id"]),
                 "similarity": float(score)
             })
-
-            # if score >= threshold and doc["link"] < other_doc["link"]:
-            #     run_cypher(Neo4j.QueryTemplate.Node.Post.MERGE, {
-            #         "link": doc["link"],
-            #         "siteName": doc.get("source") or doc.get("siteName"),
-            #         "content": doc.get("content"),
-            #         "createdAt": doc.get("createdAt"),
-            #         "updatedAt": doc.get("updatedAt"),
-            #         "deleted": doc.get("deleted")
-            #     })
-            #     run_cypher(Neo4j.QueryTemplate.Node.Post.MERGE, {
-            #         "link": other_doc["link"],
-            #         "siteName": other_doc.get("source") or other_doc.get("siteName"),
-            #         "content": other_doc.get("content"),
-            #         "createdAt": other_doc.get("createdAt"),
-            #         "updatedAt": other_doc.get("updatedAt"),
-            #         "deleted": other_doc.get("deleted")
-            #     })
-            #     insert_post_similarity(doc["link"], other_doc["link"], score)
 
         bulk_ops.append(UpdateOne(
             {"_id": doc["_id"]},

@@ -3,7 +3,6 @@ from sklearn.metrics.pairwise import cosine_similarity
 from bs4 import BeautifulSoup
 
 from core.mongo.connections import MongoCollections
-# from server.cypher import run_cypher, Neo4j # Neo4j 관련 코드는 주석 처리
 
 mongo = MongoCollections()
 collection = mongo.posts
@@ -11,7 +10,8 @@ similarity_collection = mongo.post_similarity
 
 try:
     from sentence_transformers import SentenceTransformer
-    model = SentenceTransformer('snunlp/KR-SBERT-V40K-klueNLI-augSTS')
+    # 임베딩 모델을 'upskyy/bge-m3-korean'으로 업그레이드
+    model = SentenceTransformer('upskyy/bge-m3-korean')
 except Exception as e:
     print(f"Error loading SentenceTransformer model: {e}")
     raise
@@ -23,7 +23,7 @@ def preprocess_text(text: str) -> str:
 
 
 def get_bert_embedding(text: str) -> np.ndarray:
-    return model.encode(text).astype(np.float64)
+    return model.encode(text, convert_to_numpy=True).astype(np.float64)
 
 
 def fetch_documents(filter=None, with_embedding=False):
@@ -67,28 +67,13 @@ def fetch_documents(filter=None, with_embedding=False):
 
 
 def insert_post_similarity(link1: str, link2: str, score: float):
-    # query = """
-    # MATCH (a:Post {link: $link1}), (b:Post {link: $link2})
-    # MERGE (a)-[r:SIMILAR]->(b)
-    # SET r.score = $score
-    # """
-    # run_cypher(query, {"link1": link1, "link2": link2, "score": score})
-    pass # Neo4j 기능이 구현될 때까지 비워둠
+    # Neo4j 기능이 구현될 때까지 비워둠
+    pass
 
 def merge_post_similarity(doc1, doc2, score):
     link1, link2 = doc1["link"], doc2["link"]
     if score < 0.7 or link1 >= link2:
         return
-
-    # for doc in (doc1, doc2):
-    #     run_cypher(Neo4j.QueryTemplate.Node.Post.MERGE, {
-    #         "link": doc["link"],
-    #         "siteName": doc["siteName"],
-    #         "content": doc["content"],
-    #         "createdAt": doc["createdAt"],
-    #         "updatedAt": doc["updatedAt"],
-    #         "deleted": doc["deleted"]
-    #     })
     insert_post_similarity(link1, link2, score)
 
 

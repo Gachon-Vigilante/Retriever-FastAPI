@@ -1,6 +1,6 @@
-import torch
+import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-from transformers import AutoTokenizer, AutoModel
+from sentence_transformers import SentenceTransformer
 
 from core.mongo.connections import MongoCollections
 
@@ -10,10 +10,12 @@ collection = mongo.channel_data
 similarity_collection = mongo.channel_similarity
 drug_collection = mongo.drugs
 
-# KoBERT 모델 로딩
-model_name = "monologg/kobert"
-tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-model = AutoModel.from_pretrained(model_name, trust_remote_code=True)
+# 임베딩 모델을 'upskyy/bge-m3-korean'으로 업그레이드
+try:
+    model = SentenceTransformer('upskyy/bge-m3-korean')
+except Exception as e:
+    print(f"Error loading SentenceTransformer model: {e}")
+    raise
 
 # 마약 가중치 로딩
 def load_drug_weights():
@@ -35,12 +37,9 @@ def apply_weighted_keywords(text, weights):
         weighted_words.extend([word] * weight)
     return ' '.join(weighted_words)
 
-# KoBERT 임베딩
-def get_bert_embedding(text):
-    tokens = tokenizer(text, return_tensors="pt", truncation=True, max_length=512, padding="max_length")
-    with torch.no_grad():
-        output = model(**tokens)
-    return output.last_hidden_state[:, 0, :].squeeze().tolist()
+# 임베딩 함수를 SentenceTransformer에 맞게 간소화
+def get_embedding(text):
+    return model.encode(text, convert_to_numpy=True).astype(np.float64)
 
 # 채널별 메시지 통합
 def group_texts_by_channel():
@@ -78,38 +77,37 @@ def calculate_similarity_for_new_channels():
     # 기존 채널 ID와 임베딩 준비
     existing_channel_ids = [cid for cid in grouped_texts.keys() if cid not in new_channel_ids]
     existing_texts = [apply_weighted_keywords(grouped_texts[cid], drug_weights) for cid in existing_channel_ids]
-    existing_embeddings = [get_bert_embedding(text) for text in existing_texts] if existing_channel_ids else []
+    existing_embeddings = [get_embedding(text) for text in existing_texts] if existing_channel_ids else []
 
+    results = []
     for new_channel_id in new_channel_ids:
         new_text = apply_weighted_keywords(grouped_texts[new_channel_id], drug_weights)
-        new_embedding = get_bert_embedding(new_text)
+        new_embedding = get_embedding(new_text)
 
         # 기존 채널이 없으면 skip
         if not existing_channel_ids:
-            similarity_collection.insert_one({
-                "channelId": new_channel_id,
-                "timestamp": timestamps[new_channel_id],
-                "similarChannels": []
-            })
-            continue
+            similar_channels = []
+        else:
+            # 코사인 유사도 계산 (새 채널 ↔ 기존 채널)
+            similarity_scores = cosine_similarity(
+                [new_embedding],
+                existing_embeddings
+            )[0]
 
-        # 코사인 유사도 계산 (새 채널 ↔ 기존 채널)
-        similarity_scores = cosine_similarity(
-            [new_embedding],
-            existing_embeddings
-        )[0]
+            similar_channels = []
+            for cid, score in zip(existing_channel_ids, similarity_scores):
+                similar_channels.append({
+                    "channelId": cid,
+                    "similarity": float(score)
+                })
 
-        similar_channels = []
-        for cid, score in zip(existing_channel_ids, similarity_scores):
-            similar_channels.append({
-                "channelId": cid,
-                "similarity": float(score)
-            })
-
-        similarity_collection.insert_one({
+        results.append({
             "channelId": new_channel_id,
             "timestamp": timestamps[new_channel_id],
             "similarChannels": sorted(similar_channels, key=lambda x: -x["similarity"])[:10]
         })
+
+    if results:
+        similarity_collection.insert_many(results)
 
     return {"message": f"Similarity calculation complete for {len(new_channel_ids)} new channels."}
