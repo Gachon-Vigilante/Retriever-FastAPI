@@ -38,3 +38,6 @@ celery
 celery-types
 kombu
 flower
+
+# Neo4j
+neomodel

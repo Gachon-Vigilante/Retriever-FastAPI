@@ -5,7 +5,6 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-
     "aiohttp>=3.12.15",
     "aiosqlite>=0.21.0",
     "beautifulsoup4>=4.13.4",
@@ -27,7 +26,6 @@ dependencies = [
     "sentence-transformers",
     "sentencepiece",
     "hdbscan",
-    "python-dateutil>=2.9.0.post0",
     "matplotlib",
     "sqlalchemy>=2.0.42",
     "telethon>=1.40.0",
@@ -35,4 +33,5 @@ dependencies = [
     "transformers",
     "umap-learn",
     "uvicorn[standard]>=0.35.0",
+    "neomodel>=5.5.3",
 ]
