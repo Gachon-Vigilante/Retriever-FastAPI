@@ -285,6 +285,12 @@ class Message(BaseMongoObject):
         description="미디어 그룹인 경우의 그룹 ID"
     )
 
+    argots: list[str] = Field(
+        default_factory=list,
+        title="마약 은어 리스트",
+        description="이 채팅에서 발견된 마약 은어 목록"
+    )
+
     model_config = ConfigDict(
         **BaseMongoObject.model_config,
         json_encoders = {

@@ -1,27 +1,51 @@
-# Python 3.13 기반 이미지 사용
-FROM python:3.13-slim
+# Dockerfile
 
-# 작업 디렉토리 설정
+# 1. 모든 스테이지에서 공유할 'base' 스테이지
+# uv 설치 및 pyproject.toml, uv.lock 파일 복사
+FROM python:3.13-slim AS base
 WORKDIR /app
-
-# 시스템 패키지 업데이트 및 필요한 패키지 설치
-RUN apt-get update && apt-get install -y \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
-# Python 패키지 관리를 위해 uv 설치
 RUN pip install uv
-
-# 프로젝트 파일 복사
 COPY pyproject.toml ./
-COPY uv.lock ./
 
+# 2. 공통 의존성만 설치한 'deps' 스테이지
+# 이 레이어는 자주 변경되지 않으므로 캐시 효율이 높음
+FROM base AS deps
+# Extras 없이 기본 의존성만 먼저 설치 (레이어 캐싱 활용)
+# 이 단계는 pyproject.toml이 변경될 때만 재실행됩니다.
+RUN uv venv
+RUN uv pip install --no-cache .
 
-# 의존성 설치 (uv 사용)
-RUN uv sync --frozen --no-dev
-
-# 애플리케이션 코드 복사
+# 3. 실제 소스 코드를 추가하는 'builder' 스테이지
+FROM deps AS builder
 COPY . .
 
-# 기본 명령어 (docker-compose.yml에서 오버라이드됨)
-CMD ["uv", "run", "python", "main.py"]
+# ---------------------------------------------------------
+# 여기서부터는 각 서비스의 최종 이미지를 만드는 스테이지입니다.
+# ---------------------------------------------------------
+
+# 4. FastAPI 앱을 위한 최종 이미지
+FROM builder AS fastapi-app
+# FastAPI 전용 extra 설치
+RUN uv pip install --no-cache '.[fastapi]'
+# 기본 CMD를 FastAPI 실행으로 변경 (docker-compose에서 오버라이드 가능)
+CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+
+# 5. 일반 Celery 워커 (beat, 가벼운 worker 등)를 위한 최종 이미지
+FROM builder AS celery-base-worker
+# 추가 의존성 없음 (기본 의존성만 사용)
+CMD ["uv", "run", "celery", "-A", "celery_app.app", "worker", "-l", "info"]
+
+
+# 6. 무거운 AI 모듈이 필요한 Celery 워커를 위한 최종 이미지
+FROM builder AS celery-ai-worker
+# 'ai_worker' extra를 설치 (torch, transformers 등)
+RUN uv pip install --no-cache '.[ai_worker]'
+CMD ["uv", "run", "celery", "-A", "celery_app.app", "worker", "-l", "info"]
+
+
+# 7. Flower 서비스를 위한 최종 이미지
+FROM builder AS flower-service
+# 'flower' extra를 설치
+RUN uv pip install --no-cache '.[flower]'
+CMD ["uv", "run", "celery", "-A", "celery_app.app", "flower"]
