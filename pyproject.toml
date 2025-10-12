@@ -1,5 +1,5 @@
 [project]
-name = "teleprobe"
+name = "retriever-fastapi"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -21,17 +21,50 @@ dependencies = [
     "pymongo>=4.14.0",
     "python-dateutil>=2.9.0.post0",
     "requests>=2.32.4",
+    "sqlalchemy>=2.0.42",
+    "telethon>=1.40.0",
+    "uvicorn[standard]>=0.35.0",
+    "neomodel>=5.5.3",
+]
+
+[project.optional-dependencies]
+# FastAPI 서비스에만 필요한 패키지
+fastapi = [
+]
+
+# AI 모듈 등 무거운 패키지가 필요한 Celery 워커 그룹
+ai_worker = [
     "numpy",
     "scikit-learn",
     "sentence-transformers",
     "sentencepiece",
     "hdbscan",
     "matplotlib",
-    "sqlalchemy>=2.0.42",
-    "telethon>=1.40.0",
     "torch",
     "transformers",
     "umap-learn",
-    "uvicorn[standard]>=0.35.0",
-    "neomodel>=5.5.3",
 ]
+
+# Flower 처럼 가벼운 Celery 관련 서비스 그룹
+flower = [
+    "flower",
+]
+
+[tool.setuptools.packages.find]
+# 프로젝트 루트 디렉토리('.')에서 패키지를 찾도록 지정합니다.
+where = ["."]
+# 오류 메시지에 나온 디렉토리 중 실제 패키지에 포함되어야 할 것들만 명시합니다.
+# 'logs'와 같이 패키지에 포함되면 안 되는 디렉토리는 제외합니다.
+include = [
+    "clustering*",
+    "core*",
+    "crawlers*",
+    "genai*",
+    "handlers*",
+    "routes*",
+    "tasks*",
+    "teleprobe*",
+    "celery_app*" # celery_app.py가 있다면 celery_app*도 추가
+]
+# exclude를 사용하여 특정 파일을 제외할 수도 있습니다.
+# exclude = ["tests*"]
