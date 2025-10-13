@@ -25,6 +25,7 @@ dependencies = [
     "telethon>=1.40.0",
     "uvicorn[standard]>=0.35.0",
     "neomodel>=5.5.3",
+    "pytest",
 ]
 
 [project.optional-dependencies]
