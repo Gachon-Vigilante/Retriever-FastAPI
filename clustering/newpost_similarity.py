@@ -3,6 +3,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from bs4 import BeautifulSoup
 
 from core.mongo.connections import MongoCollections
+from core.neo4j.ogm import PostNode, SimilarTo
 
 mongo = MongoCollections()
 collection = mongo.posts
@@ -10,7 +11,6 @@ similarity_collection = mongo.post_similarity
 
 try:
     from sentence_transformers import SentenceTransformer
-    # 임베딩 모델을 'upskyy/bge-m3-korean'으로 업그레이드
     model = SentenceTransformer('upskyy/bge-m3-korean')
 except Exception as e:
     print(f"Error loading SentenceTransformer model: {e}")
@@ -28,16 +28,9 @@ def get_bert_embedding(text: str) -> np.ndarray:
 
 def fetch_documents(filter=None, with_embedding=False):
     proj = {
-        "_id": 1,
-        "link": 1,
-        "source": 1,
-        "title": 1,
-        "siteName": 1,
-        "content": 1,
-        "promoSiteLink": 1,  # ← 추가
-        "createdAt": 1,
-        "updatedAt": 1,
-        "deleted": 1
+        "_id": 1, "link": 1, "source": 1, "title": 1, "siteName": 1,
+        "title": 1, "promoSiteLink": 1, "createdAt": 1, "updatedAt": 1,
+        "deleted": 1, "discovered_at": 1
     }
     if with_embedding:
         proj["embedding"] = 1
@@ -46,84 +39,64 @@ def fetch_documents(filter=None, with_embedding=False):
 
     docs = []
     for doc in cursor:
-        content = doc.get("content", "")
-        if not content.strip():
+        title = doc.get("title", "")
+        if not title.strip():
             continue
         docs.append({
+            "_id": doc["_id"],
             "postId": str(doc["_id"]),
             "link": doc.get("link", ""),
             "source": doc.get("source", ""),
             "title": doc.get("title", ""),
             "siteName": doc.get("siteName", ""),
-            "content": content,
-            "promoSiteLink": doc.get("promoSiteLink", []),  # ← 추가
-            "text": preprocess_text(content),
+            "promoSiteLink": doc.get("promoSiteLink", []),
+            "text": preprocess_text(title),
             "createdAt": doc.get("createdAt"),
             "updatedAt": doc.get("updatedAt", doc.get("createdAt")),
             "deleted": doc.get("deleted", False),
-            "embedding": np.array(doc["embedding"]) if with_embedding and "embedding" in doc else None
+            "embedding": np.array(doc["embedding"]) if with_embedding and "embedding" in doc else None,
+            "discovered_at": doc.get("discovered_at")
         })
     return docs
 
-
-def insert_post_similarity(link1: str, link2: str, score: float):
-    # Neo4j 기능이 구현될 때까지 비워둠
-    pass
-
 def merge_post_similarity(doc1, doc2, score):
-    link1, link2 = doc1["link"], doc2["link"]
-    if score < 0.7 or link1 >= link2:
+    if score < 0.7:
         return
-    insert_post_similarity(link1, link2, score)
 
+    post_obj_1 = PostNode.from_mongo(doc1)
+    post_obj_2 = PostNode.from_mongo(doc2)
+    SimilarTo.merge(post_obj_1, post_obj_2, score=float(score))
 
 def calculate_similarity_between_sets(new_docs, existing_docs):
     """
     new_docs, existing_docs : 각각 embedding 필드가 반드시 numpy 배열로 포함되어야 함.
     """
+    if not new_docs: return
 
     new_embeddings = np.array([doc["embedding"] for doc in new_docs])
-    existing_embeddings = np.array([doc["embedding"] for doc in existing_docs])
-
+    
     # 신규 문서끼리 유사도
     sim_new_new = cosine_similarity(new_embeddings)
-
-    # 신규 문서와 기존 문서 간 유사도
-    sim_new_exist = cosine_similarity(new_embeddings, existing_embeddings)
-
-    bulk_data = []
-
-    # 신규 문서끼리 유사도 저장
     for i, doc in enumerate(new_docs):
         similarities = []
         for j, score in enumerate(sim_new_new[i]):
-            if i == j:
-                continue
+            if i == j: continue
             other_doc = new_docs[j]
-            similarities.append({
-                "similarPost": other_doc["postId"],
-                "similarity": float(score)
-            })
+            similarities.append({"similarPost": other_doc["postId"], "similarity": float(score)})
             merge_post_similarity(doc, other_doc, score)
 
         # 기존 문서와 신규 문서 간 유사도 저장
-        for j, score in enumerate(sim_new_exist[i]):
-            other_doc = existing_docs[j]
-            similarities.append({
-                "similarPost": other_doc["postId"],
-                "similarity": float(score)
-            })
-            merge_post_similarity(doc, other_doc, score)
-
-        bulk_data.append({
-            "postId": doc["postId"],
-            "similarPosts": similarities,
-            "updatedAt": doc["updatedAt"]
-        })
-
-    if bulk_data:
-        similarity_collection.insert_many(bulk_data)
-
+        if existing_docs:
+            existing_embeddings = np.array([doc["embedding"] for doc in existing_docs])
+            sim_new_exist = cosine_similarity(new_embeddings[i:i+1], existing_embeddings)[0]
+            for j, score in enumerate(sim_new_exist):
+                other_doc = existing_docs[j]
+                similarities.append({"similarPost": other_doc["postId"], "similarity": float(score)})
+                merge_post_similarity(doc, other_doc, score)
+        
+        # MongoDB에 유사도 정보 업데이트 (이 부분은 bulk_write 밖에서 개별 처리)
+        # 이 함수는 새로운 문서에 대한 것이므로, upsert=True를 사용하거나, new_post_insert에서 별도 처리 필요
+        # 지금은 일단 MongoDB 업데이트 로직은 제외하고 Neo4j 연동에 집중
 
 from collections import Counter
 
@@ -132,37 +105,21 @@ def new_post_insert():
     if not new_docs:
         return {"message": "No new documents."}
 
-    # 1. promoSiteLink 기반 가중치 사전 생성
-    promo_links = [
-        doc.get("promoSiteLink", [])[0]
-        for doc in new_docs
-        if isinstance(doc.get("promoSiteLink", []), list) and doc["promoSiteLink"]
-    ]
+    promo_links = [doc.get("promoSiteLink", [])[0] for doc in new_docs if isinstance(doc.get("promoSiteLink", []), list) and doc["promoSiteLink"]]
     link_counts = Counter(promo_links)
     max_count = max(link_counts.values()) if link_counts else 1
     link_weights = {link: count / max_count for link, count in link_counts.items()}
 
-    # 2. promoSiteLink 임베딩 캐시
     promo_embeddings = {link: get_bert_embedding(link) for link in link_weights}
 
-    # 3. 임베딩 계산: 본문 + (weighted) promo 링크
     for doc in new_docs:
         text_emb = get_bert_embedding(doc["text"])
         promo_link = doc.get("promoSiteLink", [])[0] if isinstance(doc.get("promoSiteLink", []), list) and doc["promoSiteLink"] else None
-
         promo_emb = promo_embeddings.get(promo_link)
         weight = 0.3
+        doc["embedding"] = ((1 - weight) * text_emb + weight * promo_emb) if promo_emb is not None else text_emb
 
-        if promo_emb is not None:
-            doc["embedding"] = (1 - weight) * text_emb + weight * promo_emb
-        else:
-            doc["embedding"] = text_emb
-
-    # 기존 문서 로딩
     existing_docs = fetch_documents({"cluster_label": {"$exists": True}}, with_embedding=True)
-    if not existing_docs:
-        calculate_similarity_between_sets(new_docs, [])
-    else:
-        calculate_similarity_between_sets(new_docs, existing_docs)
+    calculate_similarity_between_sets(new_docs, existing_docs)
 
     return {"message": "New post similarity calculated and stored."}
