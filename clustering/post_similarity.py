@@ -8,8 +8,6 @@ from collections import Counter
 from pymongo import UpdateOne
 from core.mongo.connections import MongoCollections
 from utils import Logger
-
-# OGM 모듈 추가
 from core.neo4j.ogm import PostNode, SimilarTo
 
 # 임베딩 모델을 'upskyy/bge-m3-korean'으로 업그레이드
@@ -141,9 +139,7 @@ def similarity(threshold=0.7):
     return {"message": "Similarity calculations completed and stored in MongoDB & Neo4j."}
 
 def generate_separate_embeddings():
-    """
-    [최종 수정] promoChannelId를 사용하여 가격 정보를 올바르게 임베딩합니다.
-    """
+
     documents = list(collection.find({}))
     if not documents:
         return {"message": "No documents to process."}

@@ -14,8 +14,6 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import datetime
-
-# OGM 모듈 추가
 from core.neo4j.ogm import PostNode
 
 # post_similarity 모듈에서 텍스트 전처리 함수를 가져옵니다.

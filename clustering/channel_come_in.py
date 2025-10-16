@@ -88,7 +88,7 @@ def calculate_similarity_for_new_channels():
         if not existing_channel_ids:
             similar_channels = []
         else:
-            # 코사인 유사도 계산 (새 채널 ↔ 기존 채널)
+            # 코사인 유사도 계산
             similarity_scores = cosine_similarity(
                 [new_embedding],
                 existing_embeddings
