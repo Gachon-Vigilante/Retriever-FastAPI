@@ -38,6 +38,15 @@ class ChannelRestrictionReason(BaseModel):
     reason: str = Field(description="제한 사유")
     text: str = Field(description="제한 메시지")
 
+class Catalog(BaseModel):
+    message_ids: list[int] = Field(
+        default_factory=list,
+        description="마약 가격이 표시된 채널 목록"
+    )
+    summary: Optional[str] = Field(
+        default=None,
+        description="채널의 마약 가격을 요약한 텍스트"
+    )
 
 class ChannelFields(StrEnum):
     channel_id = "channel_id"
@@ -254,6 +263,11 @@ class Channel(BaseMongoObject):
         default=False,
         title="모니터링 여부",
         description="채널을 모니터링하고 있는지 여부"
+    )
+    catalog: Catalog = Field(
+        default_factory=Catalog,
+        title="마약 가격 정보",
+        description="채널에서 판매하는 마약의 가격 정보"
     )
 
     # === 검증 메서드들 ===

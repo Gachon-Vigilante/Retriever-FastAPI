@@ -23,7 +23,54 @@ services:
     # 이 부분을 주석 해제하면 컨테이너를 내려도(down) 데이터(큐, 메시지 등)가 보존됩니다.
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
-    
+
+  neo4j:
+    image: neo4j:latest
+    volumes:
+        - ./neo4j_data/logs:/logs
+        - ./neo4j_data/config:/config
+        - ./neo4j_data/data:/data
+        - ./neo4j_data/plugins:/plugins
+    environment:
+        - NEO4J_AUTH=${NEO4J_USER}/${NEO4J_PASSWORD}
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    restart: always
+
+  weaviate:
+    container_name: retriever-weaviate-server
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - '8888'
+      - --scheme
+      - http
+    image: cr.weaviate.io/semitechnologies/weaviate:latest
+    ports:
+      - "8888:8888"
+      - "50051:50051"
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    restart: on-failure:0
+    environment:
+      QUERY_DEFAULTS_LIMIT: 10000 # 10000이 최대인듯. 100000으로 하면 maximum result exceeded 오류 발생
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      DEFAULT_VECTORIZER_MODULE: 'text2vec-huggingface'
+      ENABLE_MODULES: 'text2vec-huggingface, reranker-cohere'
+      TRANSFORMERS_INFERENCE_API: 'http://text2vec-transformers:8080' # 추론 컨테이너 주소
+      ENABLE_API_BASED_MODULES: 'true'
+      CLUSTER_HOSTNAME: 'node1'
+
+  text2vec-transformers: # 모델을 실행할 별도 추론 컨테이너
+    build: # 'image:' 대신 'build:' 사용
+      context: .  # 현재 디렉터리
+      dockerfile: Dockerfile.transformers # 1단계에서 만든 파일 지정
+    image: my-bge-m3-korean-inference # (선택사항) 빌드된 이미지에 이름 부여
+    environment:
+      ENABLE_CUDA: '0' # GPU가 있다면 '1'로 변경
     
   worker-search:
     build: 
@@ -31,7 +78,7 @@ services:
       dockerfile: Dockerfile
       target: celery-base-worker # 기본 의존성만 포함된 스테이지 사용
     command: uv run celery -A celery_app.app worker --pool=solo -l info -Q search -P threads -c 2 -n worker.search@%h
-    depends_on: [rabbitmq]
+    depends_on: [rabbitmq, neo4j]
 
   worker-crawl:
     build:  
@@ -39,7 +86,7 @@ services:
       dockerfile: Dockerfile
       target: celery-base-worker # 기본 의존성만 포함된 스테이지 사용
     command: uv run celery -A celery_app.app worker --pool=solo -l info -Q crawl -P threads -c 2 -n worker.crawl@%h
-    depends_on: [rabbitmq]
+    depends_on: [rabbitmq, neo4j]
 
   worker-analyze:
     build:  
@@ -48,7 +95,7 @@ services:
       target: celery-base-worker # 기본 의존성만 포함된 스테이지 사용
     # aggregator task이므로, -c 1 옵션을 통해 worker가 1개만 동작하도록 보장
     command: uv run celery -A celery_app.app worker --pool=solo -l info -Q analyze -P threads -c 1 -n worker.analyze@%h
-    depends_on: [rabbitmq]
+    depends_on: [rabbitmq, neo4j]
 
   worker-telegram:
     build: 
@@ -56,7 +103,7 @@ services:
       dockerfile: Dockerfile
       target: celery-base-worker # 기본 의존성만 포함된 스테이지 사용
     command: uv run celery -A celery_app.app worker --pool=solo -l info -Q telegram.channel -c 2  -P threads -n worker.telegram.channel@%h
-    depends_on: [rabbitmq]
+    depends_on: [rabbitmq, neo4j]
 
   worker-poll:
     build:  
@@ -64,7 +111,7 @@ services:
       dockerfile: Dockerfile
       target: celery-base-worker # 기본 의존성만 포함된 스테이지 사용
     command: uv run celery -A celery_app.app worker --pool=solo -l info -Q poll -P threads -c 1 -n worker.poll@%h
-    depends_on: [rabbitmq]
+    depends_on: [rabbitmq, neo4j]
 
   beat:
     build:  
@@ -72,7 +119,7 @@ services:
       dockerfile: Dockerfile
       target: celery-base-worker # 기본 의존성만 포함된 스테이지 사용
     command: uv run celery -A celery_app.app beat -l info
-    depends_on: [rabbitmq]
+    depends_on: [rabbitmq, neo4j]
 
   flower:
     build:  
@@ -88,3 +135,7 @@ services:
 volumes:
   rabbitmq_data:
     driver: local
+
+  postgres_data:
+
+  weaviate_data:
