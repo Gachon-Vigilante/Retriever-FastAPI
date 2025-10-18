@@ -1,3 +1,9 @@
+"""Celery 애플리케이션 설정
+
+백그라운드 작업(검색, 크롤링, 분석, 폴링, 텔레그램 수집)을 큐 기반으로 처리하기 위한 Celery 설정을 제공합니다.
+큐는 토픽(Topic) 교환을 사용하며, 작업 종류별로 라우팅 키를 분리합니다.
+"""
+
 import os
 
 from celery import Celery
@@ -25,6 +31,13 @@ app = Celery(
 default_exchange = Exchange("celery", type="topic", durable=True, )
 
 def setup_celery():
+    """Celery 전역 설정을 초기화합니다.
+
+    구성 요소:
+    - 큐: search, crawl, analyze, poll, telegram, default
+    - 라우팅: 작업명별로 라우팅 키를 부여하여 관심 큐로 전달
+    - beat 스케줄: Gemini 배치 결과 폴링을 60초 간격으로 실행
+    """
     # Basic config
     app.conf.update(
         task_default_exchange="celery",
@@ -69,4 +82,9 @@ setup_celery()
 
 @app.task(bind=True)
 def ping():
+    """상태 확인을 위한 테스트 태스크.
+
+    Returns:
+        str: "pong"
+    """
     return "pong"

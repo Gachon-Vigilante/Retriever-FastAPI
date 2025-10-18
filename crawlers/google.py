@@ -1,3 +1,15 @@
+"""Google Custom Search 기반 크롤러 모듈
+
+이 모듈은 Google Custom Search API를 사용하여 키워드 검색을 수행하고,
+검색 결과를 Post 모델로 정규화하여 스트리밍 방식으로 반환합니다.
+
+주의 사항:
+- 환경 변수 GOOGLE_API_KEY, GOOGLE_CUSTOM_SEARCH_API_ID가 필요합니다.
+- 네트워크 오류 발생 시 로깅 후 다음 페이지 요청으로 진행합니다.
+
+Google 스타일의 한국어 docstring을 사용합니다.
+"""
+
 import os
 from typing import Any, Generator
 
@@ -17,11 +29,26 @@ _search_endpoint = "https://www.googleapis.com/customsearch/v1"
 
 
 class GoogleSearchEngine(SearchEngine):
+    """Google Custom Search 엔진 구현체.
+
+    SearchEngine 추상 클래스를 구현하며, 검색 결과를 제너레이터로 반환하여
+    소비자가 스트리밍 처리할 수 있도록 합니다.
+    """
+
     def search_all(
             self,
             queries: list[str],
             limit: int,
     ) -> Generator[Post, Any, None]:
+        """여러 검색어에 대해 순차적으로 검색 수행.
+
+        Args:
+            queries (list[str]): 검색어 리스트.
+            limit (int): 각 검색어 당 최대 결과 개수.
+
+        Yields:
+            Post: 검색 결과로부터 생성된 Post 모델.
+        """
         for query in queries:
             # 모든 검색어에 대해 각각 검색을 수행해서 모두 yield
             yield from self.search(query, limit)
@@ -31,6 +58,19 @@ class GoogleSearchEngine(SearchEngine):
             query: str,
             limit: int,
     ) -> Generator[Post, Any, None]:
+        """단일 검색어로 Google Custom Search 수행.
+
+        Args:
+            query (str): 검색어.
+            limit (int): 최대 결과 개수(페이지네이션으로 누적 수집).
+
+        Raises:
+            GoogleCustomSearchApiKeyMissingError: GOOGLE_API_KEY 누락 시.
+            GoogleCustomSearchApiIdMissingError: GOOGLE_CUSTOM_SEARCH_API_ID 누락 시.
+
+        Yields:
+            Post: 검색 결과 항목을 Post 모델로 정규화하여 순차 반환.
+        """
         search_engine_id = os.getenv("GOOGLE_CUSTOM_SEARCH_API_ID")
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:

@@ -39,6 +39,8 @@ Teleprobe는 다음 기능을 목표로 합니다.
   - MongoDB: 수집 결과(Post/Message/Channel) 저장
   - SQLite: 텔레그램 토큰/세션(core/sqlite.py), 배치 큐(genai/analyzers/post.py 내부)
 - 핸들러: handlers/* — 크롤링 결과/텔레그램 이벤트 처리 후 저장
+- 그래프: core/neo4j/ogm.py — 게시글·채널·은어·약물 간 관계 그래프(선택 구성)
+- 백그라운드 작업: celery_app.py — 검색/크롤링/분석/폴링/텔레그램 수집 태스크 큐
 
 간단한 데이터 흐름(웹 크롤링 경로)
 1) /api/v1/crawling/start/analyze 호출
@@ -48,6 +50,28 @@ Teleprobe는 다음 기능을 목표로 합니다.
 5) Gemini Batch에 분석 요청 등록 → 배치 제출
 6) 백그라운드 폴링 → 결과 수신
 7) 결과가 drugs_related=true이면 해당 문서의 text를 MongoDB에 채움 + analysis 저장
+
+## 서비스 아키텍처 상세
+구성 요소와 상호작용
+- 요청 경로: Client → FastAPI → (필요 시) Celery 태스크 트리거 → MongoDB/외부 API
+- 크롤링/분석: 동기 시작(API) + 비동기 완료(Celery 또는 백그라운드 태스크)
+- 그래프 저장(선택): MongoDB 문서 기반으로 Neo4j 노드/관계를 생성하여 탐색/시각화 지원
+
+백그라운드 처리 전략
+- Celery 큐 분리: search, crawl, analyze, poll, telegram, default
+- Beat 스케줄러: 60초 간격으로 Gemini 배치 상태 폴링 → 완료된 작업 처리
+- 장애 격리: 작업별 큐로 장애 전파 최소화, 재시도/타임아웃은 태스크 정의 측에서 관리
+
+그래프 모델 개요(Neo4j)
+- Post --PROMOTES--> Channel: 게시글이 텔레그램 채널로 유도
+- Channel --SELLS{message_ids}--> Argot: 특정 은어로 판매 정황, 메시지ID 누적
+- Argot --REFERS_TO--> Drug: 은어-약물 매핑
+- Post --SIMILAR_TO(score)--> Post: 게시글 간 유사도 연결(시간 순 방향성)
+
+보안/데이터 정책
+- 본문 저장 최소화: 판매글 확정 전까지 text 미저장
+- 토큰 보호: 텔레그램 토큰은 SQLite 로컬 보관, TTL/폐기 정책 운영
+- 로깅 최소화: 민감 정보가 로그에 남지 않도록 주의
 
 
 ## 디렉터리 구조 및 핵심 모듈(API Reference)
@@ -229,10 +253,6 @@ Base URL: http://localhost:8000
   - .env에서 MONGO_DB_NAME, MONGO_CONNECTION_STRING, SERPAPI_API_KEY 설정 필수
   - 로컬 MongoDB를 사용할 경우 docker run -p 27017:27017 mongo
   - 분석 기능은 GOOGLE_API_KEY가 유효해야 정상 동작
-- 확장 포인트
-  - 새로운 검색 엔진: crawlers/base.Crawler 상속 후 search()만 구현
-  - 후처리/필터링: handlers/webpage.PostHandler를 대체/확장
-  - 분석 파이프라인: genai/analyzers/post.py 의 PostAnalyzer 훅 활용
 - 데이터 정책 유의사항
   - 개인 정보/민감 정보 저장 최소화. 판매글 아님이 판정되면 본문 저장 금지 정책 유지
 
@@ -247,6 +267,3 @@ Base URL: http://localhost:8000
 - Q: SQLite는 어디에 쓰나요?
   - A: 텔레그램 토큰(core/sqlite.py)과 Gemini 배치 큐(genai/analyzers/post.py, aiosqlite)에 사용합니다. 운영환경에서는 별도 RDB나 작업 큐로의 대체를 고려할 수 있습니다.
 
-
-## 라이선스
-이 리포지토리 내 소스 코드의 라이선스 정책은 프로젝트 요구에 따라 별도로 명시하세요.

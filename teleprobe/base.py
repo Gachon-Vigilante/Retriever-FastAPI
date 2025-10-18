@@ -1,3 +1,12 @@
+"""Teleprobe 텔레그램 클라이언트 베이스 모듈
+
+Telethon 기반 텔레그램 클라이언트를 Teleprobe 용도로 확장한 고수준 래퍼를 제공합니다.
+- ConnectMethods/ChannelMethods/MessageMethods 믹스인 조합으로 기능을 구성
+- 비동기 컨텍스트 매니저 지원(연결/해제 수명주기 관리)
+- 세션 문자열(StringSession)과 파일 세션을 모두 지원
+
+Google 스타일의 한국어 docstring을 사용합니다. 기능 변경은 없습니다.
+"""
 import asyncio
 import threading
 from asyncio import AbstractEventLoop
