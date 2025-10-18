@@ -1,8 +1,7 @@
 from pymongo import MongoClient
-import torch
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-from transformers import AutoTokenizer, AutoModel
+from sentence_transformers import SentenceTransformer
 
 from core.mongo.connections import MongoCollections
 
@@ -12,10 +11,12 @@ collection = mongo.channel_data
 similarity_collection = mongo.channel_similarity
 drug_collection = mongo.drugs
 
-# KoBERT 모델 로딩
-model_name = "monologg/kobert"
-tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-model = AutoModel.from_pretrained(model_name, trust_remote_code=True)
+# 임베딩 모델을 'upskyy/bge-m3-korean'으로 업그레이드
+try:
+    model = SentenceTransformer('upskyy/bge-m3-korean')
+except Exception as e:
+    print(f"Error loading SentenceTransformer model: {e}")
+    raise
 
 # 마약 가중치 로딩
 def load_drug_weights():
@@ -37,12 +38,9 @@ def apply_weighted_keywords(text, weights):
         weighted_words.extend([word] * weight)
     return ' '.join(weighted_words)
 
-# KoBERT 임베딩
-def get_bert_embedding(text):
-    tokens = tokenizer(text, return_tensors="pt", truncation=True, max_length=512, padding="max_length")
-    with torch.no_grad():
-        output = model(**tokens)
-    return output.last_hidden_state[:, 0, :].squeeze().tolist()
+# 임베딩 함수를 SentenceTransformer에 맞게 간소화
+def get_embedding(text):
+    return model.encode(text, convert_to_numpy=True).astype(np.float64)
 
 # 채널별 메시지 통합
 def group_texts_by_channel():
@@ -67,7 +65,7 @@ def calculate_and_store_channel_similarity():
 
     channel_ids = list(grouped_texts.keys())
     texts = [apply_weighted_keywords(grouped_texts[cid], drug_weights) for cid in channel_ids]
-    embeddings = [get_bert_embedding(text) for text in texts]
+    embeddings = [get_embedding(text) for text in texts]
 
     similarity_matrix = cosine_similarity(np.array(embeddings))
     similarity_collection.delete_many({})  # 기존 데이터 삭제
@@ -88,5 +86,6 @@ def calculate_and_store_channel_similarity():
             "similarChannels": sorted(similar_channels, key=lambda x: -x["similarity"])[:10]
         })
 
-    similarity_collection.insert_many(results)
+    if results:
+        similarity_collection.insert_many(results)
     return {"message": "Channel similarity with drug weights saved to MongoDB."}

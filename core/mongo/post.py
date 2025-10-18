@@ -50,6 +50,16 @@ class TelegramPromotion(BaseModel):
         description="List of Telegram channel identifiers associated with the promotion content."
     )
 
+class PostSimilarity(BaseModel):
+    post_id: str = Field(
+        title="Post ID (ObjectID)",
+        description="ID of the post to compare with",
+    )
+    similarity: float = Field(
+        title="Similarity",
+        description="Similarity score between the post and the comparison post",
+    )
+
 class PostAnalysisResult(BaseModel):
     drugs_related: bool = Field(
         default=False,
@@ -110,6 +120,8 @@ class PostFields(StrEnum):
     title = "title"
     link = "link"
     domain = "domain"
+    site_name = "site_name"
+    cluster = "cluster"
     html = "html"
     text = "text"
     analysis = "analysis"
@@ -118,19 +130,35 @@ class PostFields(StrEnum):
     published_at = "published_at"
     discovered_at = "discovered_at"
     updated_at = "updated_at"
+    similarities = "similarities"
 
 class Post(BaseMongoObject):
     title: str = Field(
         title="Page Title",
-        description="Title of the webpage shown in search results"
+        description="Title of the webpage shown in search results",
+        alias=PostFields.title,
     )
     link: str = Field(
         title="Page URL",
-        description="URL/link to the webpage"
+        description="URL/link to the webpage",
+        alias=PostFields.link,
     )
     domain: str = Field(
         title="Page Domain",
-        description="Domain of the webpage (e.g. google.com)"
+        description="Domain of the webpage (e.g. google.com)",
+        alias=PostFields.domain,
+    )
+    site_name: str | None = Field(
+        default=None,
+        title="Page Site Name",
+        description="Name of the website shown in search results",
+        alias=PostFields.site_name,
+    )
+    cluster: int | None = Field(
+        default=None,
+        title="Page Cluster ID",
+        description="Cluster ID of the webpage",
+        alias=PostFields.cluster,
     )
     html: str | None = Field(
         default=None,
@@ -147,33 +175,46 @@ class Post(BaseMongoObject):
     analysis: PostAnalysisResult | None = Field(
         default=None,
         title="Post Analysis Results",
-        description="Analysis results of the post"
+        description="Analysis results of the post",
+        alias=PostFields.analysis,
     )
 
     analysis_job_id: ObjectId | None = Field(
         default=None,
         title="Analysis Job ID",
         description="ID of the analysis batch job",
+        alias=PostFields.analysis_job_id,
     )
     description: str | None = Field(
         default=None,
         title="Page Description",
-        description="Brief description or snippet of the webpage content"
+        description="Brief description or snippet of the webpage content",
+        alias=PostFields.description,
     )
     published_at: datetime | None = Field(
         default=None,
         title="Published Date",
         description="Date when the content was published",
+        alias=PostFields.published_at,
     )
     discovered_at: datetime | None = Field(
         default_factory=datetime.now,
         title="Discovered Date",
         description="Date when the content was discovered",
+        alias=PostFields.discovered_at,
     )
     updated_at: datetime | None = Field(
         default_factory=datetime.now,
         title="Updated Date",
         description="Date when the content was last updated",
+        alias=PostFields.updated_at,
+    )
+
+    similarities: list[PostSimilarity] = Field(
+        default_factory=list,
+        title="Similar Posts with Similarity Score",
+        description="List of posts and its similarity scores similar to the current post",
+        alias=PostFields.similarities,
     )
 
     def model_dump_only_insert(self):
@@ -225,13 +266,9 @@ class Post(BaseMongoObject):
 
 
     @classmethod
-    def from_mongo(cls, doc: dict) -> Self:
+    def from_mongo(cls, doc: dict, autofill: bool = False) -> Self:
+        if autofill:
+            for field in (PostFields.title, PostFields.link, PostFields.domain):
+                if field not in doc:
+                    doc[field] = ""
         return Post.model_validate({k: v for k, v in doc.items() if k != "_id"})
-
-    @classmethod
-    def from_dict(cls, doc: dict) -> Self:
-        for field in (PostFields.title, PostFields.link, PostFields.domain):
-            if field not in doc:
-                doc[field] = ""
-        doc.pop("_id", None)
-        return Post(**doc)

@@ -11,13 +11,15 @@ It includes comprehensive connection management features such as channel access 
 username (@username), invite links, retry logic, and error handling.
 """
 import typing
-from dataclasses import dataclass
 from enum import Enum
-from typing import Union, Optional
+from typing import Union
 
+from telethon.errors import UserAlreadyParticipantError
 from telethon.tl import types
+from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
-from telethon.tl.types import PeerChannel, Channel as TelethonChannel
+from telethon.tl.types import Channel as TelethonChannel
+
 from .constants import Logger
 from .errors import *
 
@@ -200,6 +202,8 @@ class ConnectMethods:
         if isinstance(channel_key, int):
             return ChannelKeyType.CHANNEL_ID
         elif isinstance(channel_key, str):
+            if channel_key.isdigit():
+                return ChannelKeyType.CHANNEL_ID
             if channel_key.startswith("https://t.me/+") or channel_key.startswith("+") or ".me/joinchat" in channel_key:
                 return ChannelKeyType.INVITE_LINK
             else:
@@ -349,7 +353,15 @@ class ConnectMethods:
         else:
             # 채널 ID 또는 사용자명으로 직접 연결
             if key_type == ChannelKeyType.CHANNEL_ID:
-                channel_key = PeerChannel(channel_key)
+                # ID만으로 채널에 접근하려면 캐시 session으로 채널에 참여해야 한다.
+                logger.debug(f"채널 ID가 입력되었습니다. 세션 캐싱 여부 확인 중... 키: {channel_key}")
+                try:
+                    async for dialog in self.client.iter_dialogs():
+                        if channel_key == dialog.entity.id:
+                            raise UserAlreadyParticipantError
+                    raise ChannelNotJoinedError
+                except UserAlreadyParticipantError:
+                    logger.debug("채널의 참여 정보가 세션에 이미 캐싱되어 있습니다.")
             try:
                 entity = await self.client.get_entity(channel_key)
             except ValueError as e:

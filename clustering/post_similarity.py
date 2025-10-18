@@ -1,29 +1,26 @@
 # 필요한 라이브러리 추가
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.feature_extraction.text import TfidfVectorizer # TF-IDF Vectorizer 추가
+from sklearn.feature_extraction.text import TfidfVectorizer
 from bs4 import BeautifulSoup
 import numpy as np
 from collections import Counter
 from pymongo import UpdateOne
 from core.mongo.connections import MongoCollections
-# from server.cypher import run_cypher, Neo4j # Neo4j 관련 코드는 주석 처리
 from utils import Logger
-from .newpost_similarity import insert_post_similarity
+from core.neo4j.ogm import PostNode, SimilarTo
 
-# MongoDB 컬렉션
-mongo = MongoCollections()
-collection = mongo.posts
-channel_collection = mongo.channel_info
-
-logger = Logger(__name__)
-
-# Ko-SBERT 모델 로드
+# 임베딩 모델을 'upskyy/bge-m3-korean'으로 업그레이드
 try:
-    model = SentenceTransformer('snunlp/KR-SBERT-V40K-klueNLI-augSTS')
+    model = SentenceTransformer('upskyy/bge-m3-korean')
 except Exception as e:
     print(f"Error loading SentenceTransformer model: {e}")
     raise
+
+mongo = MongoCollections()
+collection = mongo.posts
+channel_collection = mongo.channel_info
+logger = Logger(__name__)
 
 def preprocess_text(text):
     if not text: return ""
@@ -39,78 +36,69 @@ def fetch_channel_catalog(channel_id: int):
     if not channel_id: return None
     return channel_collection.find_one({"_id": channel_id})
 
-# 이 함수가 /post_preprocess 에서 호출됩니다.
 def embeddings():
-    # 모든 문서를 대상으로 임베딩을 새로 생성합니다.
-    documents = list(collection.find({}))
+    """모든 게시물에 대해 하이브리드 임베딩을 생성하고 저장합니다."""
+    documents = list(collection.find({}, {"_id": 1, "title": 1, "channelId": 1}))
     if not documents:
         return {"message": "No documents to process."}
 
     logger.info(f"총 {len(documents)}개 게시물에 대한 하이브리드 임베딩 시작.")
 
-    corpus = [preprocess_text(doc.get('content', '')) for doc in documents]
+    corpus = [preprocess_text(doc.get('title', '')) for doc in documents]
     vectorizer = TfidfVectorizer(min_df=2, max_df=0.7, token_pattern=r'\b[a-zA-Z0-9가-힣]{2,}\b')
-    tfidf_matrix = vectorizer.fit_transform(corpus)
-    feature_names = np.array(vectorizer.get_feature_names_out())
-    
-    doc_keywords = {}
-    for i, doc in enumerate(documents):
-        tfidf_vector = tfidf_matrix[i]
-        sorted_indices = tfidf_vector.toarray().argsort()[0][::-1]
-        top_keywords_indices = [idx for idx in sorted_indices if tfidf_vector[0, idx] > 0][:5]
-        top_n_keywords = feature_names[top_keywords_indices]
-        doc_keywords[doc['_id']] = ' '.join(top_n_keywords)
+    try:
+        tfidf_matrix = vectorizer.fit_transform(corpus)
+        feature_names = np.array(vectorizer.get_feature_names_out())
+
+        doc_keywords = {}
+        for i, doc in enumerate(documents):
+            tfidf_vector = tfidf_matrix[i]
+            sorted_indices = tfidf_vector.toarray().argsort()[0][::-1]
+            top_keywords_indices = [idx for idx in sorted_indices if tfidf_vector[0, idx] > 0][:5]
+            top_n_keywords = feature_names[top_keywords_indices]
+            doc_keywords[doc['_id']] = ' '.join(top_n_keywords)
+    except ValueError:
+        logger.warning("TF-IDF를 계산하기에 문서가 부족하여 키워드 임베딩을 건너뜁니다.")
+        doc_keywords = {}
 
     bulk_ops = []
     for doc in documents:
-        # 1. 문맥 임베딩
-        doc_text = preprocess_text(doc.get('content', ''))
+        doc_text = preprocess_text(doc.get('title', ''))
         doc_emb = get_bert_embedding(doc_text)
 
-        # 2. 키워드 의미 임베딩
         keywords_text = doc_keywords.get(doc['_id'], '')
         keyword_emb = get_bert_embedding(keywords_text)
-        
-        # 3. 가격 정보 임베딩
+
         catalog = fetch_channel_catalog(doc.get("channelId"))
-        price_emb = np.zeros_like(doc_emb) # 기본값은 0 벡터
+        price_emb = np.zeros_like(doc_emb)
         if catalog and "catalog" in catalog and isinstance(catalog.get("catalog"), dict) and "description" in catalog["catalog"]:
             price_text = catalog["catalog"]["description"].replace("\n", " ").replace("-", "")
             price_emb = get_bert_embedding(price_text)
 
-        # 4. 가중치를 적용하여 하나의 최종 임베딩으로 결합
         w_doc = 0.5
         w_keyword = 0.3
         w_price = 0.2
-        
         combined_emb = (w_doc * doc_emb) + (w_keyword * keyword_emb) + (w_price * price_emb)
 
-        # 생성된 최종 임베딩을 'embedding' 필드에 저장하고, 다른 벡터 필드는 삭제
         bulk_ops.append(UpdateOne(
             {"_id": doc["_id"]},
             {
                 "$set": {"embedding": combined_emb.tolist()},
-                "$unset": {
-                    "doc_embedding": "", 
-                    "keyword_embedding": "", 
-                    "price_embedding": "",
-                    "keyword_vector": ""
-                }
+                "$unset": {"doc_embedding": "", "keyword_embedding": "", "price_embedding": "", "keyword_vector": ""}
             }
         ))
 
     if bulk_ops:
         collection.bulk_write(bulk_ops)
         logger.info(f"하이브리드 임베딩 완료 및 저장: {len(bulk_ops)}개 문서.")
-    
+
     return {"message": f"Hybrid embeddings (TF-IDF + SBERT) generated for {len(bulk_ops)} documents."}
 
-
-# __init__.py 에서 호출할 함수
 def similarity(threshold=0.7):
     documents = list(collection.find({"embedding": {"$exists": True}}, {
-        "_id": 1, "link": 1, "siteName": 1, "content": 1,
-        "createdAt": 1, "updatedAt": 1, "deleted": 1, "embedding": 1
+        "_id": 1, "link": 1, "siteName": 1, "title": 1,
+        "createdAt": 1, "updatedAt": 1, "deleted": 1, "embedding": 1,
+        "discovered_at": 1 # from_mongo를 위해 추가
     }))
 
     if len(documents) < 2:
@@ -134,24 +122,11 @@ def similarity(threshold=0.7):
                 "similarity": float(score)
             })
 
-            # if score >= threshold and doc["link"] < other_doc["link"]:
-            #     run_cypher(Neo4j.QueryTemplate.Node.Post.MERGE, {
-            #         "link": doc["link"],
-            #         "siteName": doc.get("source") or doc.get("siteName"),
-            #         "content": doc.get("content"),
-            #         "createdAt": doc.get("createdAt"),
-            #         "updatedAt": doc.get("updatedAt"),
-            #         "deleted": doc.get("deleted")
-            #     })
-            #     run_cypher(Neo4j.QueryTemplate.Node.Post.MERGE, {
-            #         "link": other_doc["link"],
-            #         "siteName": other_doc.get("source") or other_doc.get("siteName"),
-            #         "content": other_doc.get("content"),
-            #         "createdAt": other_doc.get("createdAt"),
-            #         "updatedAt": other_doc.get("updatedAt"),
-            #         "deleted": other_doc.get("deleted")
-            #     })
-            #     insert_post_similarity(doc["link"], other_doc["link"], score)
+            # 임계값을 넘는 경우, OGM을 사용하여 Neo4j 관계 생성
+            if score >= threshold:
+                post_obj_1 = PostNode.from_mongo(doc)
+                post_obj_2 = PostNode.from_mongo(other_doc)
+                SimilarTo.merge(post_obj_1, post_obj_2, score=float(score))
 
         bulk_ops.append(UpdateOne(
             {"_id": doc["_id"]},
@@ -161,52 +136,44 @@ def similarity(threshold=0.7):
     if bulk_ops:
         collection.bulk_write(bulk_ops)
 
-    return {"message": "Similarity calculations completed and stored in MongoDB."}
+    return {"message": "Similarity calculations completed and stored in MongoDB & Neo4j."}
 
-
-# -------------------- 3개의 임베딩 벡터 -----------
 def generate_separate_embeddings():
-    """
-    [최종 수정] promoChannelId를 사용하여 가격 정보를 올바르게 임베딩합니다.
-    """
+
     documents = list(collection.find({}))
     if not documents:
         return {"message": "No documents to process."}
 
     logger.info(f"총 {len(documents)}개 게시물에 대한 개별 벡터/임베딩 생성 시작.")
 
-    corpus = [preprocess_text(doc.get('content', '')) for doc in documents]
+    corpus = [preprocess_text(doc.get('title', '')) for doc in documents]
     vectorizer = TfidfVectorizer(min_df=2, max_df=0.7, token_pattern=r'\b[a-zA-Z0-9가-힣]{2,}\b')
     tfidf_matrix = vectorizer.fit_transform(corpus)
 
     vocabulary = vectorizer.get_feature_names_out()
     logger.info(f"TF-IDF Vectorizer가 학습한 전체 단어 수: {len(vocabulary)}")
     logger.info(f"학습된 단어 샘플 (앞 100개): {vocabulary[:100]}")
-    
+
     bulk_ops = []
     for i, doc in enumerate(documents):
 
         price_emb = np.zeros(model.get_sentence_embedding_dimension(), dtype=np.float64)
-        
 
         channel_id = doc.get("promoChannelId")
 
         if channel_id:
             catalog = fetch_channel_catalog(channel_id)
-            
 
             if catalog and "description" in catalog:
                 price_text = catalog["description"]
-                
-                # "가격 정보 없음" 케이스는 0 벡터로 처리합니다.
+
                 if "가격 정보를 찾을 수 없습니다" not in price_text:
                     cleaned_price_text = price_text.replace("\n", " ").replace("-", "")
                     price_emb = get_bert_embedding(cleaned_price_text)
-        
-        # --- doc_embedding 및 tfidf_vector 생성 로직  ---
+
         doc_text = corpus[i]
         doc_emb = get_bert_embedding(doc_text)
-        
+
         tfidf_vector = tfidf_matrix[i].toarray().flatten().tolist()
 
         bulk_ops.append(UpdateOne(
@@ -223,5 +190,5 @@ def generate_separate_embeddings():
     if bulk_ops:
         collection.bulk_write(bulk_ops)
         logger.info(f"개별 벡터/임베딩 생성 및 저장 완료: {len(bulk_ops)}개 문서.")
-    
+
     return {"message": f"Separate embeddings and vectors generated for {len(bulk_ops)} documents. {(vocabulary[:100])}"}

@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from handlers import MessageHandler
+from handlers import MessageHandler, ChannelHandler
 from routes.responses import SuccessfulResponse, TeleprobeHTTPException
 from routes.teleprobe.models import channelKeyPath, TeleprobeClientManager
 from teleprobe.base import TeleprobeClient
@@ -41,7 +41,7 @@ async def post_messages_from_channel(
         async with client:
             # 채널 정보 조회 (비동기 방식)
             logger.info(f"채널 정보 조회 요청: {channel_key}")
-            channel_entity = await client.get_channel(channel_key)
+            channel_entity = await client.get_channel(channel_key, ChannelHandler())
 
             if not channel_entity:
                 raise HTTPException(

@@ -36,6 +36,7 @@ __all__ = [
     'UnknownInvitationTypeError',
     'SessionStringInvalidError',
     'ChannelNotFoundError',
+    'ChannelNotJoinedError',
     'EntityNotFoundError',
     'UsernameNotFoundError',
     'ChannelKeyInvalidError',
@@ -130,6 +131,11 @@ class ChannelNotFoundError(Exception):
     """
     def __init__(self, msg: Optional[str] = None):
         super().__init__(msg or "Channel not found.")
+
+class ChannelNotJoinedError(Exception):
+    """채널 식별자가 정수 형태이지만 아직 참가하지 않아 캐시에 없는 경우에 대한 예외 클래스"""
+    def __init__(self, msg: Optional[str] = None):
+        super().__init__(msg or "Channel not joined yet.")
 
 class UsernameNotFoundError(Exception):
     """사용자명을 찾을 수 없는 경우에 대한 예외 클래스
@@ -241,6 +247,7 @@ ACCEPTABLE_EXCEPTIONS = (
     UnknownInvitationTypeError,
     SessionStringInvalidError,
     ChannelNotFoundError,
+    ChannelNotJoinedError,
     EntityNotFoundError,
     UsernameNotFoundError,
     ChannelKeyInvalidError,

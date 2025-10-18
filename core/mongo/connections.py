@@ -167,6 +167,12 @@ class MongoCollections:
         """Gemini 배치 작업 컬렉션"""
         return self.db.analysis_jobs
 
+    @property
+    @lru_cache(maxsize=1)
+    def drugs(self) -> pymongo.collection.Collection:
+        """마약 관련 정보 컬렉션"""
+        return self.db.drugs
+
 _mongo_client: Optional[pymongo.MongoClient] = None
 
 @lru_cache(maxsize=1)
@@ -230,50 +236,3 @@ def mongo_client() -> Optional[pymongo.MongoClient]:
 
     return _mongo_client
 
-collections = MongoCollections()
-default_db = mongo_client()[db_name]
-collection_names = [
-    collections.channels.name,
-    collections.messages.name,
-    collections.posts.name,
-    collections.analysis_jobs.name,
-]
-for collection_name in collection_names:
-    try:
-        default_db.create_collection(collection_name)
-    except CollectionInvalid:
-        pass
-
-collections.channels.create_index([
-    ("channel_id", 1),
-    ("username", 1),
-    ("title", 1)
-], unique=True)
-
-collections.messages.create_index([
-    ("message_id", 1),
-    ("channel_id", 1),
-    ("edit_date", 1),
-], unique=True)
-
-collections.analysis_jobs.create_index(
-    [("status", 1)],
-    unique=True,
-    partialFilterExpression={"status": "accepting_request"}
-)
-
-collections.analysis_jobs.create_index(
-    [("post_ids", 1)],
-    unique=True, # 유일성을 보장한다.
-    partialFilterExpression={ # 하지만 아래 조건을 만족하는 문서에만 적용한다.
-        "status": {
-            "$in": [
-                "accepting_request",
-                "pending",
-                "submitted",
-                "processed"
-                # FAILED와 COMPLETED 상태는 여기서 제외
-            ]
-        }
-    }
-)

@@ -14,6 +14,7 @@ objects to internal Channel models and permanently storing them in the database.
 from telethon.tl.types import Channel as TelethonChannel
 
 from core.mongo.channel import Channel
+from core.neo4j.ogm import ChannelNode
 
 
 class ChannelHandler:
@@ -114,4 +115,6 @@ class ChannelHandler:
         """
         # datetime을 ISO 형식 문자열로 변환하여 직렬화
         channel: Channel = Channel.from_telethon(telethon_channel)
+        channel_node: ChannelNode = ChannelNode.from_mongo(channel.model_dump())
         channel.store()
+        channel_node.merge()
