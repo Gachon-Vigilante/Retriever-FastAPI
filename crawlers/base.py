@@ -1,3 +1,13 @@
+"""크롤러 공통 베이스 모듈
+
+이 모듈은 검색 엔진 인터페이스와 웹페이지 방문/텍스트 추출 유틸리티를 제공합니다.
+- SearchEngine: 검색 엔진 구현을 위한 추상 인터페이스
+- WebpageCrawler: 정적 GET으로 HTML을 가져오고 고성능 텍스트 추출(extract)을 수행
+- is_telegram_link: 텔레그램 링크 여부 판별 정규식 유틸리티
+- extract: lxml 기반의 고속 텍스트 추출 함수(BeautifulSoup 대비 3~5배 빠름)
+
+Google 스타일의 한국어 docstring을 사용하며, 기능 변경 없이 문서화만 수행합니다.
+"""
 import re
 from typing import Optional, Callable, Coroutine, Any
 import aiohttp
@@ -11,6 +21,14 @@ from utils import Logger
 logger = Logger(__name__)
 
 class CrawlerResult(BaseModel):
+    """웹페이지 방문 결과 모델
+
+    정적 방문으로 가져온 HTML과, 추출된 순수 텍스트를 함께 보관합니다.
+
+    Attributes:
+        html (str | None): 원본 HTML 문자열.
+        text (str | None): HTML에서 태그·스크립트 등을 제거하고 남은 의미 텍스트.
+    """
     html: str | None = Field(
         default=None,
         title="게시글 원본 HTML",
@@ -25,23 +43,44 @@ class CrawlerResult(BaseModel):
     )
 
 class TotalCrawledResult(BaseModel):
+    """키워드별 크롤링 총괄 결과 컨테이너
+
+    여러 키워드에 대한 개별 CrawlerResult 집합을 보관합니다.
+    """
     results: list[CrawlerResult] = Field(
         default_factory=list
     )
 
     def show(self):
+        """사람이 읽기 쉬운 총괄 문자열을 생성합니다."""
         return (f"크롤링 결과: 키워드 {len(self.results)}개, "
                 f"총 검색 결과: {sum([len(r) for r in self.results])}건, "
                 f"게시글: {sum([len(r.posts) for r in self.results])}건, "
                 f"텔레그램 채널: {sum([len(r.telegram_links) for r in self.results])}건")
 
 class SearchEngine:
+    """검색 엔진 인터페이스 기본 클래스
+
+    각 검색 엔진 구현체는 이 클래스를 상속받아 search 메서드를 구현합니다.
+
+    Attributes:
+        keywords (list[str]): 검색에 사용할 키워드 목록.
+        limit (int): 키워드 당 최대 결과 수.
+        max_retries (int): 검색 실패 시 재시도 횟수(엔진 내부 활용).
+    """
     def __init__(
             self,
             keywords: list[str],
             limit: int = 10,
             max_retries: int = 3
     ):
+        """SearchEngine 초기화
+
+        Args:
+            keywords (list[str]): 검색 키워드 목록.
+            limit (int): 키워드 당 최대 결과 수.
+            max_retries (int): 실패 시 재시도 횟수.
+        """
         self.keywords = keywords
         self.limit = limit
         self.max_retries = max_retries
@@ -51,16 +90,43 @@ class SearchEngine:
             keyword: str,
             limit: int,
     ) -> list[Post]:
+        """단일 키워드에 대한 검색을 수행하여 Post 리스트를 반환합니다.
+
+        구현체에서 반드시 오버라이드해야 합니다.
+        """
         raise NotImplementedError("search() method is not implemented.")
 
 class WebpageCrawler:
+    """정적 웹페이지 크롤러
+
+    aiohttp를 사용하여 지정된 링크를 GET으로 방문하고, 원본 HTML과 추출 텍스트를 반환합니다.
+    서버 사이드 렌더링 없이 정적 HTML만을 대상으로 합니다.
+
+    Attributes:
+        max_retries (int): 방문 실패 시 재시도 횟수.
+    """
     def __init__(
             self,
             max_retries: int = 3
     ):
+        """WebpageCrawler 초기화.
+
+        Args:
+            max_retries (int): 방문 재시도 횟수 (기본 3).
+        """
         self.max_retries = max_retries
 
     async def crawl(self, link: str) -> CrawlerResult | None:
+        """링크를 방문하여 HTML과 텍스트를 반환합니다.
+
+        방문이 성공하면 CrawlerResult(html, text)를 반환하고, 모든 재시도 실패 시 None을 반환합니다.
+
+        Args:
+            link (str): 방문할 절대 URL.
+
+        Returns:
+            CrawlerResult | None: 방문 및 추출 결과 또는 실패 시 None.
+        """
         visit_error = None
         timeout_seconds = 1
         for retry in range(self.max_retries):
@@ -93,6 +159,14 @@ class WebpageCrawler:
         return None
 
 def is_telegram_link(link: str) -> bool:
+    """주어진 링크가 텔레그램 링크인지 판별합니다.
+
+    Args:
+        link (str): 검사할 URL 문자열.
+
+    Returns:
+        bool: 텔레그램 링크(t.me 등)로 식별되면 True, 아니면 False.
+    """
     return True if re.findall(TELEGRAM_LINK_PATTERN, link) else False
 
 
