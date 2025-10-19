@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from utils import Logger
 from routes import root_router
 from celery_app import setup_celery
+from watson.vectorstore.weaviate import register_schema
 
 setup_celery()
 logger = Logger(__name__)
@@ -44,6 +45,7 @@ async def lifespan(fastapi_app: FastAPI):
     logger.debug("Registered Routes:")
     for route in fastapi_app.routes:
         logger.debug(f"  {route}")
+    await register_schema()
     yield
 
 app = FastAPI(lifespan=lifespan)

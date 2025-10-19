@@ -1,0 +1,8 @@
+# 1. Weaviate의 커스텀 추론 이미지를 기반으로 시작합니다.
+FROM cr.weaviate.io/semitechnologies/transformers-inference:custom
+
+# 2. 다운로드할 Hugging Face 모델을 환경 변수로 지정합니다.
+ENV MODEL_NAME=upskyy/bge-m3-korean
+
+# 3. 컨테이너 빌드 시점에 모델을 다운로드하는 스크립트를 실행합니다.
+RUN ./download.py

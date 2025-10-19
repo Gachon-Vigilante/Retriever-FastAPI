@@ -28,9 +28,13 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+import pytz
 from dotenv import load_dotenv
 
 load_dotenv()
+
+mongo_connection_string = os.getenv("MONGO_CONNECTION_STRING")
+mongo_db_name = os.getenv('MONGO_DB_NAME')
 
 default_log_path = "logs/server.log"
 if not os.getenv("LOG_PATH"):
@@ -64,3 +68,17 @@ CRAWLER_HEADERS = {
                   "Chrome/114.0.0.0 "
                   "Safari/537.36"
 }
+
+country_code = os.getenv("COUNTRY_CODE", "KR")
+
+# 국가 코드에 따른 timezone 매핑
+COUNTRY_TIMEZONES = {
+    "KR": "Asia/Seoul",
+    "US": "America/New_York",
+    "JP": "Asia/Tokyo",
+    "FR": "Europe/Paris",
+    # 필요시 더 추가
+}
+
+timezone_str = COUNTRY_TIMEZONES.get(country_code, "UTC")
+tz = pytz.timezone(timezone_str)

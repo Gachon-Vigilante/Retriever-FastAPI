@@ -17,10 +17,9 @@ Examples:
     resp = llm.invoke("Hello")
     print(resp.content)
 """
-import yaml
 from pathlib import Path
-from pydantic import BaseModel, Field
 
+import yaml
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 
@@ -47,8 +46,9 @@ prompts = load_prompts()
 
 # LangChain Google Generative AI 클라이언트 (테스트/도구적 사용)
 # 운영 경로에서는 배치 API(google.genai)를 권장합니다.
+llm_model_name = "gemini-2.5-pro"
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
+    model=llm_model_name,
     temperature=0,
     max_tokens=None,
     timeout=60,

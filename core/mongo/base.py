@@ -12,7 +12,7 @@ data validation and serialization features, and automatically handles
 MongoDB's ObjectId field.
 """
 import threading
-from typing import Optional, Union
+from typing import Optional, Union, Self
 
 from bson import ObjectId
 from pydantic import BaseModel, Field, field_validator, ConfigDict
@@ -73,3 +73,6 @@ class BaseMongoObject(BaseModel):
         exclude=True
     )
 
+    @classmethod
+    def from_mongo(cls, doc: dict) -> Self:
+        return cls.model_validate({k: v for k, v in doc.items() if k != "_id"})
