@@ -10,58 +10,9 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from typing import Dict, Any
 
-from clustering.post_similarity import embeddings, similarity, generate_separate_embeddings
-from clustering.newpost_similarity import new_post_insert
 from clustering.post import perform_clustering_with_HDBSCAN, cluster_with_custom_metric
 
 router = APIRouter()
-
-@router.post("/preprocess")
-def preprocess_posts():
-    """게시글 임베딩(전처리) 생성 엔드포인트
-
-    모든 게시물에 대해 하이브리드 임베딩을 생성하고 저장합니다.
-
-    Returns:
-        dict: 처리 결과 메시지.
-    """
-    return embeddings()
-
-@router.post("/similarity")
-def calculate_similarity(threshold: float = 0.7):
-    """게시글 간 유사도 계산 엔드포인트
-
-    전체 게시물 간의 코사인 유사도를 계산하고 MongoDB에 유사 항목을 저장합니다.
-
-    Args:
-        threshold (float): 유사도 임계값. 이 값 이상의 유사도를 가진 경우 후속 그래프 연결 등에 활용할 수 있습니다.
-
-    Returns:
-        dict: 처리 결과 메시지.
-    """
-    return similarity(threshold=threshold)
-
-@router.post("/generate-separate-embeddings")
-def generate_separate_embeddings_endpoint():
-    """개별 임베딩/벡터 생성 엔드포인트
-
-    각 게시물에 대해 문서 임베딩, 가격 임베딩, TF-IDF 벡터를 개별적으로 생성하여 저장합니다.
-
-    Returns:
-        dict: 처리 결과 메시지.
-    """
-    return generate_separate_embeddings()
-
-@router.post("/new-post-similarity")
-def new_post_similarity_endpoint():
-    """신규 게시글 유사도 계산 엔드포인트
-
-    새로 추가된 게시물과 기존 게시물 간의 유사도를 계산하고 저장합니다.
-
-    Returns:
-        dict: 처리 결과 메시지.
-    """
-    return new_post_insert()
 
 @router.post("/cluster-hdbscan")
 def cluster_hdbscan_endpoint(
