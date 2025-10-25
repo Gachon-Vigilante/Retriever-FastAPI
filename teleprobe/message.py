@@ -11,8 +11,9 @@ It includes utility methods for efficiently traversing large amounts of message 
 and applying custom handlers to each message.
 """
 
-from typing import TYPE_CHECKING, Union, Callable, Coroutine
+from typing import TYPE_CHECKING, Union, Callable, Coroutine, Optional
 
+from telethon import TelegramClient
 from telethon.tl.types import (
     Channel as TelethonChannel,
     Chat as TelethonChat,
@@ -69,7 +70,7 @@ class MessageMethods:
     async def iter_messages(
             self: 'TeleprobeClient',
             entity: Union[TelethonChannel, TelethonChat],
-            handler: Callable[[Message, int], Coroutine] = None,
+            handler: Callable[[Message, int, Optional[TelegramClient]], Coroutine] = None,
     ):
         """지정된 엔티티의 메시지들을 비동기적으로 반복하는 제너레이터 메서드
 
@@ -124,5 +125,5 @@ class MessageMethods:
         """
         async for message in self.client.iter_messages(entity):
             if handler and isinstance(handler, Callable) and isinstance(message, Message):
-                await handler(message, entity.id)
+                await handler(message, entity.id, self.client)
             yield message
