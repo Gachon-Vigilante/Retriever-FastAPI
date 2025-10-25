@@ -1,3 +1,5 @@
+name: retriever-python
+
 # 실행하려는 서비스(컨테이너)들을 정의합니다.
 services:
   # 서비스의 논리적인 이름 (여기서는 'rabbitmq'로 지정)
@@ -130,6 +132,22 @@ services:
     ports:
       - "5555:5555"
     depends_on: [rabbitmq]
+
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: fastapi-app
+    command: uv run uvicorn main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    depends_on: [neo4j, weaviate, text2vec-transformers]
+    environment:
+      NEO4J_HOST: "neo4j"
+      WEAVIATE_HTTP_HOST: "weaviate"
+      WEAVIATE_HTTP_PORT: "8888"
+      WEAVIATE_GRPC_HOST: "weaviate"
+      WEAVIATE_GRPC_PORT: "50051"
 
 # (선택 사항) 위에서 사용한 볼륨(rabbitmq_data)을 명시적으로 정의합니다.
 volumes:
