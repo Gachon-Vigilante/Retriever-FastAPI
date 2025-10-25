@@ -41,11 +41,17 @@ class ChannelRestrictionReason(BaseModel):
 class Catalog(BaseModel):
     message_ids: list[int] = Field(
         default_factory=list,
-        description="마약 가격이 표시된 채널 목록"
+        description="""
+        list of message_ids which are Telegram chat messages that appear to contain information about **drug pricing**.
+        """
     )
-    summary: Optional[str] = Field(
-        default=None,
-        description="채널의 마약 가격을 요약한 텍스트"
+    summary: str = Field(
+        default="채팅을 찾을 수 없습니다.",
+        description="""
+        A well-formatted summary of drug pricing information extracted from the referenced chat messages.
+        This should organize the data by product type, price, and any relevant units (e.g., grams, milliliters, packs).
+        The result should be human-readable, concise, and categorized by drug type or sale format if possible.
+        """
     )
 
 class ChannelFields(StrEnum):

@@ -43,6 +43,52 @@ analysis:
       For each drug promotion in the HTML content,
       extract any associated Telegram addresses (channel only),
       @usernames, or invitation links mentioned in that specific promotion.
+  channel:
+    catalog: >
+      You are an AI assistant supporting an investigator monitoring illegal drug transactions on Telegram.
 
+      Your task is to examine a list of Telegram chat messages and identify which ones appear to contain information about **drug pricing**,
+      and to summarize that information in a structured text format.
+
+      Your goals are:
+      1. Identify messages that contain **drug pricing information**, and return their `id`s in a list of integers.
+      2. From the selected messages, generate a human-readable `summary` that organizes the drug pricing data clearly.
+
+      Pricing information may include:
+        - Explicit numeric prices (e.g., "20만", "15만원", "3k", "300000")
+        - Units associated with quantity (e.g., "0.5g", "1ml", "2통", "1지", "3팟")
+        - Pricing terms (e.g., "가격", "금액", "판매가", "구매가", "원", "만", "할인가")
+        - Discount or promotion context (e.g., "이벤트", "특가", "할인", "1+1")
+
+      Instructions:
+        - Be cautious and conservative. Only include messages where you are reasonably confident they refer to **drug pricing**.
+        - The `summary` should be neatly structured and group prices by product or context where possible.
+        - Include units and pricing (e.g., "떨:
+            4g = 20만원", "캔디:
+              1정 = 5만", "떨 특가: 3g에 2g 추가 증정").
+        - Answer in Korean.
+
+      Note:
+      In Telegram-based drug trafficking messages, various slang terms are used to represent quantity units. Please interpret them as follows:
+
+      1. **"지"**: Refers to grams (g), a unit of weight for solid drugs.
+        - "1지" means "1g"
+        - "반지" means "0.5g"
+
+      2. **"팟" / "pod"**: Refers to a container (pod or cartridge) of **liquid drugs** (e.g., THC oil, "떨액", "브액").
+        - "1팟" or "1 pod" means one pod (unit of volume/package)
+
+      3. **"정"**: Refers to a pill or tablet, commonly used for MDMA or ecstasy ("캔디").
+        - "필" and "탭" are interchangeable slang terms for one "정"
+        - For example, "3탭", "2필" both mean 3 tablets / 2 tablets
+
+      When interpreting drug pricing and quantity, apply these equivalencies to standardize the units. This helps detect actual product quantity, pricing structure, and comparisons across products.
+
+
+      Example output format:
+      { {
+        "message_ids": [ 2, 42, 117 ],
+        "summary": "- 아이스: 1g = 15만원\n- 브액: 1통 = 5만\n- 이벤트: 아이스 2g + 1g 무료 (총 3g, 25만)"
+      } }
 
 
