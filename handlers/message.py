@@ -14,6 +14,7 @@ fake handlers for testing purposes.
 
 from typing import Union, Any
 
+from telethon import TelegramClient
 from telethon.tl.types import Message as TelethonMessage, User as TelethonUser, Channel as TelethonChannel
 
 from core.mongo.drugs import find_all_argots_in_text
@@ -21,7 +22,6 @@ from core.mongo.message import Message
 from core.mongo.types import SenderType
 from core.neo4j.ogm import Sells, ChannelNode, ArgotNode
 from utils import Logger
-
 
 logger = Logger(__name__)
 
@@ -60,7 +60,7 @@ class MessageHandler:
         - Others -> None (warning log output)
     """
 
-    async def __call__(self, message: Union[TelethonMessage, Any], chat_id: int):
+    async def __call__(self, message: Union[TelethonMessage, Any], chat_id: int, client: TelegramClient = None):
         """텔레그램 메시지를 처리하고 저장하는 비동기 callable 메서드
 
         제공된 메시지의 발신자 정보를 분석하고, 메시지를 내부 Message 모델로
@@ -123,12 +123,13 @@ class MessageHandler:
                     f"메세지 송신자가 알려지지 않은 타입입니다. Expected `User` or `Channel`, got `{type(sender)}`",
                 )
                 sender_type = None
-        Message.from_telethon(
+        (await Message.from_telethon(
             message,
             sender_id=sender_id,
             chat_id=chat_id,
-            sender_type=sender_type
-        ).store()
+            sender_type=sender_type,
+            client=client
+        )).store()
 
         for argot_search_result in find_all_argots_in_text(message.message):
             Sells.merge(
@@ -185,7 +186,7 @@ class FakeMessageHandler(MessageHandler):
         """
         super().__init__()
 
-    async def __call__(self, message, chat_id):
+    async def __call__(self, message, chat_id, client: TelegramClient = None):
         """메시지 내용을 디버그 로그로 출력하는 비동기 callable 메서드
 
         실제 저장 작업 없이 메시지의 텍스트 내용만을 디버그 레벨로 로그에 출력합니다.
