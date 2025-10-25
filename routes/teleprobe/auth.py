@@ -11,6 +11,16 @@ through WebSocket. It handles user inputs required during authentication (phone 
 in real-time through WebSocket and implements thread-safe input redirection.
 """
 
+"""텔레프로브 텔레그램 인증(WebSocket) 라우트 모듈
+
+이 모듈은 Telethon 기반 텔레그램 인증 플로우를 웹소켓으로 중계합니다.
+브라우저로부터 인증 입력(전화번호, 코드, 2FA 등)을 받고, Telethon의 입력 프롬프트를
+스레드 세이프한 큐로 리디렉션하여 상호작용을 완결합니다.
+
+구성 요소:
+- ThreadSafeInputRedirector: Telethon의 input() 호출을 현재 스레드에 한해 큐로 리디렉션
+- telethon_auth_callback: WebSocket 엔드포인트(서버→클라이언트 프롬프트, 클라이언트→서버 입력)
+"""
 import builtins
 import asyncio
 import threading

@@ -212,4 +212,7 @@ __marimo__/
 *.pyc
 uv.lock
 
+# sqlite database file
 *.db
+# neo4j data
+neo4j_data/

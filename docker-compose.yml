@@ -1,0 +1,141 @@
+# 실행하려는 서비스(컨테이너)들을 정의합니다.
+services:
+  # 서비스의 논리적인 이름 (여기서는 'rabbitmq'로 지정)
+  rabbitmq:
+    # 사용할 Docker 이미지 (docker run ... rabbitmq:4-management 부분)
+    # latest RabbitMQ 4.x 버전의 management 플러그인 포함 이미지
+    image: rabbitmq:4-management
+
+    # 컨테이너의 이름을 'rabbitmq'로 고정합니다 (--name rabbitmq 부분)
+    container_name: rabbitmq
+
+    # 호스트와 컨테이너 간의 포트를 매핑합니다 (-p 5672:5672 -p 15672:15672 부분)
+    # 형식: "호스트_포트:컨테이너_포트"
+    ports:
+      - "5672:5672"   # AMQP 프로토콜 포트 (애플리케이션 클라이언트 접속용)
+      - "15672:15672" # Management UI 포트 (웹 관리자 페이지 접속용)
+
+    # (선택 사항) 재시작 정책 설정
+    # Docker 데몬이 시작되거나, 컨테이너가 예기치 않게 종료됐을 때 자동으로 다시 시작합니다.
+    restart: unless-stopped
+    
+    # (선택 사항) 데이터 영구 보관을 위한 볼륨 설정
+    # 이 부분을 주석 해제하면 컨테이너를 내려도(down) 데이터(큐, 메시지 등)가 보존됩니다.
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  neo4j:
+    image: neo4j:latest
+    volumes:
+        - ./neo4j_data/logs:/logs
+        - ./neo4j_data/config:/config
+        - ./neo4j_data/data:/data
+        - ./neo4j_data/plugins:/plugins
+    environment:
+        - NEO4J_AUTH=${NEO4J_USER}/${NEO4J_PASSWORD}
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    restart: always
+
+  weaviate:
+    container_name: retriever-weaviate-server
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - '8888'
+      - --scheme
+      - http
+    image: cr.weaviate.io/semitechnologies/weaviate:latest
+    ports:
+      - "8888:8888"
+      - "50051:50051"
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    restart: on-failure:0
+    environment:
+      QUERY_DEFAULTS_LIMIT: 10000 # 10000이 최대인듯. 100000으로 하면 maximum result exceeded 오류 발생
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      DEFAULT_VECTORIZER_MODULE: 'text2vec-huggingface'
+      ENABLE_MODULES: 'text2vec-huggingface, reranker-cohere'
+      TRANSFORMERS_INFERENCE_API: 'http://text2vec-transformers:8080' # 추론 컨테이너 주소
+      ENABLE_API_BASED_MODULES: 'true'
+      CLUSTER_HOSTNAME: 'node1'
+
+  text2vec-transformers: # 모델을 실행할 별도 추론 컨테이너
+    build: # 'image:' 대신 'build:' 사용
+      context: .  # 현재 디렉터리
+      dockerfile: Dockerfile.transformers # 1단계에서 만든 파일 지정
+    image: my-bge-m3-korean-inference # (선택사항) 빌드된 이미지에 이름 부여
+    environment:
+      ENABLE_CUDA: '0' # GPU가 있다면 '1'로 변경
+    
+  worker-search:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      target: celery-base-worker # 기본 의존성만 포함된 스테이지 사용
+    command: uv run celery -A celery_app.app worker --pool=solo -l info -Q search -P threads -c 2 -n worker.search@%h
+    depends_on: [rabbitmq, neo4j]
+
+  worker-crawl:
+    build:  
+      context: .
+      dockerfile: Dockerfile
+      target: celery-base-worker # 기본 의존성만 포함된 스테이지 사용
+    command: uv run celery -A celery_app.app worker --pool=solo -l info -Q crawl -P threads -c 2 -n worker.crawl@%h
+    depends_on: [rabbitmq, neo4j]
+
+  worker-analyze:
+    build:  
+      context: .
+      dockerfile: Dockerfile
+      target: celery-base-worker # 기본 의존성만 포함된 스테이지 사용
+    # aggregator task이므로, -c 1 옵션을 통해 worker가 1개만 동작하도록 보장
+    command: uv run celery -A celery_app.app worker --pool=solo -l info -Q analyze -P threads -c 1 -n worker.analyze@%h
+    depends_on: [rabbitmq, neo4j]
+
+  worker-telegram:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      target: celery-base-worker # 기본 의존성만 포함된 스테이지 사용
+    command: uv run celery -A celery_app.app worker --pool=solo -l info -Q telegram.channel -c 2  -P threads -n worker.telegram.channel@%h
+    depends_on: [rabbitmq, neo4j]
+
+  worker-poll:
+    build:  
+      context: .
+      dockerfile: Dockerfile
+      target: celery-base-worker # 기본 의존성만 포함된 스테이지 사용
+    command: uv run celery -A celery_app.app worker --pool=solo -l info -Q poll -P threads -c 1 -n worker.poll@%h
+    depends_on: [rabbitmq, neo4j]
+
+  beat:
+    build:  
+      context: .
+      dockerfile: Dockerfile
+      target: celery-base-worker # 기본 의존성만 포함된 스테이지 사용
+    command: uv run celery -A celery_app.app beat -l info
+    depends_on: [rabbitmq, neo4j]
+
+  flower:
+    build:  
+      context: .
+      dockerfile: Dockerfile
+      target: flower-service # flower 패키지가 포함된 스테이지 사용
+    command: uv run celery -A celery_app.app flower
+    ports:
+      - "5555:5555"
+    depends_on: [rabbitmq]
+
+# (선택 사항) 위에서 사용한 볼륨(rabbitmq_data)을 명시적으로 정의합니다.
+volumes:
+  rabbitmq_data:
+    driver: local
+
+  postgres_data:
+
+  weaviate_data:

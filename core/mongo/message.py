@@ -12,6 +12,7 @@ data validation, serialization, and MongoDB storage functionality.
 """
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Optional, Any
 
 import pymongo
@@ -29,6 +30,25 @@ logger = Logger(__name__)
 protected_fields = [
     "updated_at"
 ]
+
+class MessageFields(StrEnum):
+    channel_id = "channel_id"
+    message_id = "message_id"
+    message = "message"
+    date = "date"
+    updated_at = "updated_at"
+    from_id = "from_id"
+    sender_type = "sender_type"
+    out = "out"
+    mentioned = "mentioned"
+    media_unread = "media_unread"
+    silent = "silent"
+    views = "views"
+    forwards = "forwards"
+    post = "post"
+    legacy = "legacy"
+    grouped_id = "grouped_id"
+    argots = "argots"
 
 class Message(BaseMongoObject):
     """텔레그램 메시지를 나타내는 MongoDB 문서 모델 (Telethon Message 기반)

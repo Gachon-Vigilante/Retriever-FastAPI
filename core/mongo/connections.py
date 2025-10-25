@@ -17,7 +17,8 @@ from functools import lru_cache
 
 import pymongo
 from dotenv import load_dotenv
-from pymongo.errors import CollectionInvalid
+
+from ..constants import mongo_connection_string, mongo_db_name
 
 from utils import Logger
 
@@ -25,8 +26,6 @@ from utils import Logger
 logger = Logger(__name__)
 
 load_dotenv()
-
-db_name = os.getenv('MONGO_DB_NAME')
 
 class MongoCollections:
     """MongoDB 컬렉션들을 중앙 관리하는 클래스
@@ -78,9 +77,9 @@ class MongoCollections:
         """
         if db and not isinstance(db, pymongo.database.Database):
             raise TypeError("Database object must be provided with pymongo.database.Database type.")
-        if not db and not db_name:
+        if not db and not mongo_db_name:
             raise EnvironmentError("To use default MongoDB instance, MONGO_DB_NAME environment variable must be set.")
-        self.db = db or mongo_client()[db_name]
+        self.db = db or mongo_client()[mongo_db_name]
 
     @property
     @lru_cache(maxsize=1)
@@ -121,11 +120,6 @@ class MongoCollections:
     @lru_cache(maxsize=1)
     def post_similarity(self) -> pymongo.collection.Collection:
         return self.db.post_similarity
-
-    @property
-    @lru_cache(maxsize=1)
-    def drugs(self) -> pymongo.collection.Collection:
-        return self.db.drugs
 
     @property
     @lru_cache(maxsize=1)
@@ -173,6 +167,22 @@ class MongoCollections:
         """마약 관련 정보 컬렉션"""
         return self.db.drugs
 
+    @property
+    @lru_cache(maxsize=1)
+    def chatbots(self) -> pymongo.collection.Collection:
+        return self.db.chatbots
+
+    @property
+    @lru_cache(maxsize=1)
+    def chatbot_checkpoints(self) -> pymongo.collection.Collection:
+        return self.db.chatbot_checkpoints
+
+    @property
+    @lru_cache(maxsize=1)
+    def chatbot_checkpoint_writes(self) -> pymongo.collection.Collection:
+        return self.db.chatbot_checkpoint_writes
+
+
 _mongo_client: Optional[pymongo.MongoClient] = None
 
 @lru_cache(maxsize=1)
@@ -217,13 +227,12 @@ def mongo_client() -> Optional[pymongo.MongoClient]:
     global _mongo_client
 
     if _mongo_client is None:
-        connection_string = os.getenv("MONGO_CONNECTION_STRING")
-        if not connection_string:
+        if not mongo_connection_string:
             return None
 
         try:
             _mongo_client = pymongo.MongoClient(
-                connection_string,
+                mongo_connection_string,
                 serverSelectionTimeoutMS=5000,
                 retryWrites=True,
                 retryReads=True

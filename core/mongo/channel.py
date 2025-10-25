@@ -1,3 +1,14 @@
+"""MongoDB 채널 모델
+
+이 모듈은 텔레그램 채널 정보를 영속화하기 위한 Pydantic 모델과 저장 유틸리티를 제공합니다.
+비즈니스 규칙 요약:
+- 채널 본문 데이터가 아닌 메타데이터 중심 저장
+- username/title/channel_id 조합으로 업서트(upsert)하며, 핵심 보호 필드(protected_fields)는 최초 생성시에만 설정
+- Telethon Channel 객체를 내부 모델로 안전하게 변환(날짜 직렬화, 제한 사유 등)
+
+Google style의 docstring을 사용하며, 설명은 한국어로 제공됩니다.
+"""
+
 import re
 from datetime import datetime
 from enum import StrEnum
@@ -27,6 +38,15 @@ class ChannelRestrictionReason(BaseModel):
     reason: str = Field(description="제한 사유")
     text: str = Field(description="제한 메시지")
 
+class Catalog(BaseModel):
+    message_ids: list[int] = Field(
+        default_factory=list,
+        description="마약 가격이 표시된 채널 목록"
+    )
+    summary: Optional[str] = Field(
+        default=None,
+        description="채널의 마약 가격을 요약한 텍스트"
+    )
 
 class ChannelFields(StrEnum):
     channel_id = "channel_id"
@@ -244,6 +264,11 @@ class Channel(BaseMongoObject):
         title="모니터링 여부",
         description="채널을 모니터링하고 있는지 여부"
     )
+    catalog: Catalog = Field(
+        default_factory=Catalog,
+        title="마약 가격 정보",
+        description="채널에서 판매하는 마약의 가격 정보"
+    )
 
     # === 검증 메서드들 ===
     @classmethod
@@ -392,19 +417,42 @@ class Channel(BaseMongoObject):
     )
 
     def model_dump_only_insert(self):
+        """업서트 최초 생성 시에만 설정해야 하는 보호 필드만 추출합니다.
+
+        Returns:
+            dict: 최초 생성 시에만 고정되어야 할 필드(updated_at, last_message_date, monitoring, status)만 포함한 딕셔너리.
+        """
         return {k: v for k, v in self.model_dump().items() if k in protected_fields}
 
     def model_dump_only_update(self):
+        """업데이트 시 변경 가능한 일반 필드만 추출합니다.
+
+        Returns:
+            dict: 보호 필드를 제외한 나머지 필드만 포함한 딕셔너리.
+        """
         return {k: v for k, v in self.model_dump().items() if k not in protected_fields}
 
     def store(self) -> None:
+        """채널 문서를 MongoDB에 업서트(upsert)합니다.
+
+        비즈니스 로직:
+        - channel_id + username + title 조합으로 동일 개체를 판별합니다.
+        - 이미 존재하면 최신 checked_at 기준으로 문서를 찾아 일반 필드만 갱신합니다.
+        - 없으면 새 문서를 생성하고 보호 필드는 $setOnInsert로만 초기화합니다.
+
+        Raises:
+            pymongo.errors.DuplicateKeyError: 동시 업서트 경합 시 발생할 수 있으나, 로깅 후 무시합니다.
+        """
         channel_collection = MongoCollections().channels
         try:
             result = channel_collection.find_one_and_update(
-                {"id": self.channel_id, "username": self.username, "title": self.title},
-                {"$set": self.model_dump_only_update(),
+                filter={
+                    ChannelFields.channel_id: self.channel_id,
+                    ChannelFields.username: self.username,
+                    ChannelFields.title: self.title},
+                update={"$set": self.model_dump_only_update(),
                  "$setOnInsert": self.model_dump_only_insert(),},
-                sort=[("checked_at", -1)],
+                sort=[(ChannelFields.checked_at, -1)],
                 upsert=True,
                 return_document=ReturnDocument.BEFORE
             )

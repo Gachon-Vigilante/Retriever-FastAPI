@@ -1,3 +1,25 @@
+"""웹 게시글 분석(Gemini Batch) 모듈
+
+이 모듈은 MongoDB에 저장된 웹 게시글(Post)에 대해 Google GenAI Batch API를 사용하여
+대량 분석을 수행하는 파이프라인을 제공합니다. 배치 작업의 수명주기(요청 적재 → 제출 →
+상태 폴링 → 결과 다운로드/반영)를 MongoDB 컬렉션과 함께 관리하며, 다음과 같은
+비즈니스 규칙을 따릅니다.
+
+- 대기 중인 작업 하나를 항상 ACCEPTING_REQUESTS 상태로 유지합니다(새 요청 수신 용도).
+- 파일 크기 한도(기본 1GB)를 초과하지 않도록 요청 라인을 JSONL로 누적합니다.
+- 작업이 제출되면 SUBMITTED → PROCESSED → COMPLETED 순으로 상태를 전이합니다.
+- Gemini 결과(JSONL)를 다운로드해 각 Post 문서의 analysis 필드에 저장하며,
+  drugs_related=true 등 조건에 맞춰 후속 트리거가 실행될 수 있습니다.
+
+Google 스타일의 한국어 docstring을 사용하며, 기능 변경 없이 문서화만 제공합니다.
+
+Examples:
+    async with PostAnalyzer() as analyzer:
+        await analyzer.flip_idle_accepting_job_to_pending()
+        await analyzer.submit_batch()
+        await analyzer.check_batch_status()
+        await analyzer.complete_jobs()
+"""
 import json
 import os
 import tempfile
@@ -66,6 +88,27 @@ class JobCompletionResult(BaseModel):
 
 
 class PostAnalyzer:
+    """웹 게시글 분석 파이프라인 관리자
+
+    Google GenAI Batch API를 사용한 배치 분석 작업의 전 과정을 관리합니다.
+    MongoDB 내 analysis_jobs, gemini_requests 컬렉션과 posts 컬렉션을 사용하여
+    요청 적재, 배치 제출, 상태 폴링, 결과 반영을 수행합니다.
+
+    Attributes:
+        MAX_FILE_SIZE_BYTES (int): 업로드할 JSONL 파일의 최대 크기(바이트).
+        template (list): LLM에 전달할 프롬프트 템플릿(역할/메시지 조합).
+        _generation_config (dict): Gemini 응답 포맷/온도 등 생성 설정.
+
+    Examples:
+        async with PostAnalyzer() as analyzer:
+            # 유휴 상태 작업을 PENDING으로 전환 후 제출
+            await analyzer.flip_idle_accepting_job_to_pending()
+            await analyzer.submit_batch()
+
+            # 상태 확인 및 완료 처리
+            await analyzer.check_batch_status()
+            await analyzer.complete_jobs()
+    """
     # 1GB 크기 제한 상수
     MAX_FILE_SIZE_BYTES = 1024 * 1024 * 1024  # 1GB
     template: list = [

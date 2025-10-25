@@ -1,3 +1,9 @@
+"""Gemini 배치 폴링 및 텔레그램 추적 트리거 태스크 모듈
+
+이 모듈은 주기적으로 Gemini Batch 작업을 폴링하여 상태를 갱신하고,
+완료된 분석 결과에서 텔레그램 식별자(identifier)를 추출해 텔레그램 채널 수집 태스크를
+발행합니다. Celery beat에 의해 60초 간격으로 실행됩니다.
+"""
 import asyncio
 
 from celery import shared_task
@@ -13,6 +19,15 @@ logger = Logger(__name__)
 
 @shared_task(name=POLL_GEMINI_TASK_NAME)
 def poll_gemini_batches_task():
+    """Gemini Batch 상태 폴링 및 결과 처리 Celery 태스크
+
+    순서:
+    1) accept 상태로 대기 중인 배치를 pending으로 전환(유휴 상태 해제)
+    2) pending 배치를 제출(submit)
+    3) 제출된 배치의 상태를 폴링하여 완료 여부 갱신
+    4) 완료된 작업의 결과를 MongoDB(Post)에 반영(text/analysis 업데이트)
+    5) 분석 결과에서 텔레그램 식별자를 수집하여 텔레그램 채널 태스크를 발행
+    """
     async def _run():
         async with PostAnalyzer() as analyzer:
             # 새로운 요청이 들어오지 않을 경우, accepting_request 상태의 작업을 pending 상태로 전환
@@ -83,13 +98,15 @@ async def invoke_telegram_task():
     ]
     results = post_collection.aggregate(pipeline)
     for result_doc in results:
-        logger.info(f"텔레그램 추적을 시도할 identifier 발견. "
-                    f"post ID: {result_doc["original_doc_id"]}, "
-                    f"identifier: {result_doc["identifier"]}, "
-                    f"path: {result_doc['path']}")
+        logger.info(
+            f"텔레그램 추적을 시도할 identifier 발견. "
+            f"post ID: {result_doc['original_doc_id']}, "
+            f"identifier: {result_doc['identifier']}, "
+            f"path: {result_doc['path']}"
+        )
         telegram_channel_task.delay(
-            result_doc["identifier"],
-            str(result_doc["original_doc_id"]),
-            result_doc["path"],
+            result_doc['identifier'],
+            str(result_doc['original_doc_id']),
+            result_doc['path'],
         )
                 

@@ -140,3 +140,42 @@ class Logger:
                 return get_customized_logger()
         else:
             return getLogger(*args, **kwargs)
+
+import uuid
+import typing
+def generate_integer_id64(existing_ids:typing.Iterable[int]=None):
+    """64비트 무작위 정수 ID를 생성합니다.
+
+    Args:
+        existing_ids: 이미 존재하는 ID들의 컬렉션 (선택사항)
+
+    Returns:
+        int: 생성된 64비트 무작위 정수 ID
+    """
+    # uuid4()를 사용하여 무작위 UUID 생성 후, 정수형으로 변환
+    if not existing_ids:
+        return uuid.uuid4().int % (1 << 63)
+    while (new_id:=uuid.uuid4().int % (1 << 63)) in existing_ids:
+        pass
+    return new_id
+
+from datetime import datetime, timezone
+
+def dict_to_xml(data: dict) -> str:
+    """딕셔너리를 XML 문자열로 변환합니다.
+
+    Args:
+        data: 변환할 딕셔너리
+
+    Returns:
+        str: XML 형식의 문자열
+    """
+    xml_parts = []
+    for key, value in data.items():
+        if isinstance(value, datetime):
+            # Ensure UTC and ISO format
+            text = value.astimezone(timezone.utc).isoformat()
+        else:
+            text = str(value)
+        xml_parts.append(f'<{key}>{text}</{key}>')
+    return ''.join(xml_parts)

@@ -1,12 +1,12 @@
 from pymongo.errors import CollectionInvalid
 
-from .mongo.connections import MongoCollections, mongo_client, db_name
+from .mongo.connections import MongoCollections, mongo_client, mongo_db_name
 from .mongo.drugs import DrugsFields
 from .neo4j.ogm import RefersTo, ArgotNode, DrugNode
 
 def database_setup():
     collections = MongoCollections()
-    default_db = mongo_client()[db_name]
+    default_db = mongo_client()[mongo_db_name]
     collection_names = [
         collections.channels.name,
         collections.messages.name,

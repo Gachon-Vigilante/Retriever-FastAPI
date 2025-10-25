@@ -1,3 +1,20 @@
+"""텔레그램 채널 수집 태스크 모듈
+
+이 모듈은 텔레그램 채널 식별자(링크/username/채널ID)를 입력받아 채널 정보를 수집·저장하고,
+모니터링 시작 요청을 FastAPI로 전달한 뒤, 채널 메시지를 순회하여 MongoDB에 저장하는
+Celery 태스크를 제공합니다. 분석 파이프라인에서 식별된 텔레그램 identifier 후처리를 자동화합니다.
+
+비즈니스 규칙:
+- 채널 조회 시 ChannelHandler를 통해 MongoDB/Neo4j 저장을 수행합니다.
+- posts.analysis.promotions[].identifiers[]의 경로(mongo_path)가 주어지면, 해당 identifier에
+  매핑된 channel_id와 처리 상태(is_processed)를 업데이트합니다.
+- 예상 가능(허용)한 Telethon 오류는 MongoDB에 error 메시지로 기록하고 처리 완료로 표시합니다.
+
+환경 변수:
+- FASTAPI_HOST: FastAPI 서버 베이스 URL (예: http://localhost:8000)
+
+기능 변경 없이 문서화만 추가합니다.
+"""
 import asyncio
 import os
 from urllib.parse import urljoin
@@ -22,6 +39,22 @@ logger = Logger(__name__)
 
 @shared_task(name=TELEGRAM_CHANNEL_TASK_NAME)
 def telegram_channel_task(channel_identifier: str, post_id: str | None = None, mongo_path: str | None = None):
+    """텔레그램 채널을 수집/모니터링하고 관련 MongoDB 문서를 갱신하는 Celery 태스크
+
+    Args:
+        channel_identifier (str): 텔레그램 채널 식별자(링크/username/채널ID).
+        post_id (str | None): identifier를 포함한 posts 문서의 ObjectId 문자열(선택).
+        mongo_path (str | None): identifier의 경로(예: analysis.promotions.0.identifiers.1)(선택).
+
+    Returns:
+        None
+
+    Note:
+        - post_id와 mongo_path가 함께 제공되면, identifier에 연결된 channel_id를 기록하고
+          is_processed를 True로 변경합니다.
+        - 허용된 Telethon 예외(ACCEPTABLE_EXCEPTIONS)는 error 필드에 메시지를 기록한 뒤
+          is_processed를 True로 전환합니다.
+    """
     logger.info(f"Collecting telegram channel key: {channel_identifier}")
     if post_id:
         post_id = ObjectId(post_id)
@@ -61,7 +94,7 @@ def telegram_channel_task(channel_identifier: str, post_id: str | None = None, m
                 logger.info(f"FastAPI 서버에 채널 모니터링을 요청했습니다. "
                             f"status code: {response.status_code}, response: {response.text}")
 
-                # 채널 정보 조회 (비동기 방식)
+                # 채널 메시지 전체 수집 및 저장
                 logger.info(f"채널 메시지 수집을 시도합니다: {channel_identifier}")
                 channel_entity = await client.get_channel(channel_identifier, ChannelHandler())
                 async for _ in client.iter_messages(channel_entity, MessageHandler()):

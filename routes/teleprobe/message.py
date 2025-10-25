@@ -1,3 +1,8 @@
+"""텔레프로브 텔레그램 메시지 라우트 모듈
+
+이 모듈은 특정 텔레그램 채널로부터 메시지를 수집하여 저장하는 FastAPI 엔드포인트를 제공합니다.
+- POST /channel/{channel_key}/messages: 채널 메시지를 순회하며 처리/저장합니다.
+"""
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -17,25 +22,17 @@ async def post_messages_from_channel(
         client: Annotated[TeleprobeClient, Depends(TeleprobeClientManager.get_client_by_token)],
         channel_key: channelKeyPath,
 ):
-    """
-    Handles the POST request to process and store messages from a Telegram channel.
+    """지정된 텔레그램 채널의 메시지를 수집·저장하는 엔드포인트
 
-    This asynchronous function retrieves channel information, iterates through messages
-    from the specified Telegram channel, processes them, and stores them.
+    비동기 텔레그램 클라이언트를 통해 채널 정보를 조회한 뒤, 해당 채널의 메시지를 순회하면서
+    MessageHandler로 처리/저장합니다.
 
     Args:
-        client: The TeleprobeClient instance provided by the dependency manager, used
-            to interact with the Telegram client.
-        channel_key: The unique identifier for the target Telegram channel from which
-            messages are to be retrieved.
-
-    Raises:
-        HTTPException: If the channel is not found (404), the channel key has an invalid
-            format (400), the Telegram service is unavailable (503), or any internal
-            server error occurs (500).
+        client (TeleprobeClient): 의존성으로 주입된 텔레그램 클라이언트 인스턴스.
+        channel_key (int | str): 메시지를 수집할 대상 채널 식별자.
 
     Returns:
-        A dictionary containing a success message if all messages are successfully stored.
+        SuccessfulResponse: 수집/저장이 완료되었음을 나타내는 성공 응답.
     """
     try:
         async with client:
