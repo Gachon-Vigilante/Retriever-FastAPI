@@ -34,7 +34,11 @@ from core.mongo.channel import ChannelFields
 from core.mongo.post import PostFields
 
 load_dotenv()
-config.DATABASE_URL = os.getenv("NEO4J_URL")
+
+NEO4J_HOST = os.getenv("NEO4J_HOST", "localhost")
+NEO4J_USER = os.getenv("NEO4J_USER")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
+config.DATABASE_URL = f"bolt://{NEO4J_USER}:{NEO4J_PASSWORD}@{NEO4J_HOST}:7687/neo4j"
 
 class Promotes(StructuredRel):
     """게시글이 채널을 홍보/유도하는 관계 모델(PROMOTES)."""
