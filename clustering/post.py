@@ -1,256 +1,169 @@
 import umap.umap_ as umap
 import numpy as np
 import hdbscan
-from sklearn.metrics.pairwise import cosine_similarity,euclidean_distances
+import re
 from collections import Counter
+
 from core.mongo.connections import MongoCollections
-# from server.cypher import run_cypher # Neo4j 관련 코드는 주석 처리
 from utils import Logger
 from pymongo import UpdateOne
-from sklearn.preprocessing import MinMaxScaler  
-from sklearn.metrics import silhouette_score, davies_bouldin_score , silhouette_samples
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import datetime # 파일명 구분을 위해 추가
+from sklearn.metrics import silhouette_score
+
+from core.neo4j.ogm import PostNode
+from core.mongo.post import PostFields
 
 mongo = MongoCollections()
 collection = mongo.posts
 logger = Logger(__name__)
 
 
-def perform_clustering_with_HDBSCAN(min_cluster_size=15, min_samples=8, n_neighbors=15, n_components=15):
+# --- Helper Functions ---
+
+def _get_char_ngrams(text: str, n: int = 3) -> set:
     """
-    단일 'embedding' 필드를 사용하여 UMAP + HDBSCAN 클러스터링을 수행합니다.
+    주어진 텍스트를 정규화하고, 문자 n-gram의 집합으로 변환합니다.
+    - 소문자 변환
+    - 한글, 영어 알파벳, 숫자를 제외한 모든 문자 제거
     """
-    # 'embedding' 필드가 존재하는 모든 문서를 가져옵니다.
-    documents = list(collection.find({"embedding": {"$exists": True}}, {"_id": 1, "embedding": 1, "link": 1}))
+    # 1. 소문자로 변환
+    text = text.lower()
+    # 2. 한글, 영어, 숫자를 제외한 모든 문자를 공백으로 변환
+    text = re.sub(r'[^a-z0-9가-힣]', ' ', text)
+    # 3. 여러 개의 공백을 하나로 합치고, 양쪽 끝 공백 제거
+    text = ' '.join(text.split())
+    # 4. 최종적으로 모든 공백 제거 후 n-gram 생성
+    text = ''.join(text.split())
+    return {text[i:i + n] for i in range(len(text) - n + 1)}
+
+
+def calculate_jaccard_distance_matrix(texts: list[str]) -> np.ndarray:
+    """
+    주어진 텍스트 목록에 대해 문자 3-gram 기반 Jaccard 거리 행렬을 계산합니다.
+    """
+    logger.info(f"Calculating Jaccard distance matrix for {len(texts)} documents...")
+    corpus_sets = [_get_char_ngrams(text, n=3) for text in texts]
+    num_docs = len(texts)
+    distance_matrix = np.zeros((num_docs, num_docs))
+    for i in range(num_docs):
+        for j in range(i, num_docs):
+            if i == j: continue
+            set1, set2 = corpus_sets[i], corpus_sets[j]
+            intersection = len(set1.intersection(set2))
+            union = len(set1.union(set2))
+            similarity = intersection / union if union != 0 else 0
+            distance = 1 - similarity
+            distance_matrix[i, j] = distance_matrix[j, i] = distance
+    logger.info("Jaccard distance matrix calculation complete.")
+    return distance_matrix
+
+
+def perform_multi_view_clustering(
+        weights={'id': 0.5, 'template': 0.5},
+        min_cluster_size=3,
+        min_samples=1,
+        n_neighbors=15,
+        n_components=10,
+        similarity_threshold=0.7
+):
+    """
+    'ID'와 '전체 템플릿'의 거리 행렬을 직접 가중 합산하여,
+    더 정교한 최종 클러스터링을 수행하고 유사도 정보를 저장합니다.
+    """
+    documents = list(collection.find({}, {"_id": 1, PostFields.title: 1, PostFields.link: 1}))
     if len(documents) < min_cluster_size:
-        return {"error": "Not enough documents with embeddings to cluster."}
+        return {"error": "Not enough documents to cluster."}
 
-    logger.info(f"총 {len(documents)}개 게시물에 대한 UMAP+HDBSCAN 클러스터링 시작.")
+    logger.info(f"Starting multi-view clustering for {len(documents)} documents.")
 
-    embeddings = np.array([doc["embedding"] for doc in documents])
     ids = [doc["_id"] for doc in documents]
-    links = [doc.get("link") for doc in documents]
+    links = [doc.get(PostFields.link) for doc in documents]
+    titles = [doc.get(PostFields.title, '') for doc in documents]
+    num_docs = len(documents)
 
-    # UMAP으로 차원 축소
-    logger.info(f"UMAP으로 {n_components}차원으로 축소 중...")
+    # 1. 두 가지 다른 관점의 데이터(corpus) 준비
+    corpus_id_only = [re.sub(r'[^a-z0-9]', '', title.lower()) for title in titles]
+    corpus_full_template = [re.sub(r'[^a-z0-9가-힣]', '', title.lower()) for title in titles]
+
+    # 2. 각 관점의 '거리 행렬'을 직접 계산
+    logger.info("Calculating distance matrix for View 1 (ID)...")
+    dist_matrix_id = calculate_jaccard_distance_matrix(corpus_id_only)
+
+    logger.info("Calculating distance matrix for View 2 (Full Template)...")
+    dist_matrix_template = calculate_jaccard_distance_matrix(corpus_full_template)
+
+    # 3. 두 거리 행렬을 가중 합산하여 최종 거리 행렬 생성
+    logger.info(f"Combining distance matrices with weights: id={weights['id']}, template={weights['template']}")
+    combined_dist_matrix = (
+            weights['id'] * dist_matrix_id +
+            weights['template'] * dist_matrix_template
+    )
+
+    # 4. 최종 거리 행렬로 UMAP -> HDBSCAN 파이프라인 실행
+    logger.info("Running UMAP on the combined distance matrix...")
     umap_model = umap.UMAP(
-        n_neighbors=n_neighbors, 
+        n_neighbors=n_neighbors,
         n_components=n_components,
-        min_dist=0.0, 
-        metric='cosine', 
+        metric='precomputed',
         random_state=42
     )
-    umap_embeddings = umap_model.fit_transform(embeddings)
+    umap_embeddings = umap_model.fit_transform(combined_dist_matrix)
 
-    # HDBSCAN 클러스터링
-    logger.info("HDBSCAN 클러스터링 수행 중...")
-    clusterer = hdbscan.HDBSCAN(
-        min_cluster_size=min_cluster_size, 
+    logger.info("Running HDBSCAN on the UMAP embeddings...")
+    final_clusterer = hdbscan.HDBSCAN(
+        min_cluster_size=min_cluster_size,
         min_samples=min_samples,
-        metric='euclidean', 
-        cluster_selection_method='eom'
+        metric='euclidean'
     )
-    labels = clusterer.fit_predict(umap_embeddings)
+    final_labels = final_clusterer.fit_predict(umap_embeddings)
 
-    # 클러스터링 성능 평가 (실루엣 계수)
-    mask = labels != -1
-    silhouette_avg = -1
-    if np.sum(mask) > 1 and len(set(labels[mask])) > 1:
-        silhouette_avg = silhouette_score(umap_embeddings[mask], labels[mask])
-
-    # 결과 업데이트
     bulk_ops = []
-    for idx, doc_id in enumerate(ids):
-        cluster_label = int(labels[idx])
-        bulk_ops.append(UpdateOne({"_id": doc_id}, {"$set": {"cluster_label": cluster_label}}))
-        # run_cypher(
-        #     "MERGE (p:Post {link: $link}) ON MATCH SET p.cluster = $cluster",
-        #     parameters={"link": links[idx], "cluster": cluster_label}
-        # )
-    
+    for i, doc_id in enumerate(ids):
+        cluster_label = int(final_labels[i])
+
+        similarities = []
+        for j in range(num_docs):
+            if i == j: continue
+            similarity_score = 1.0 - combined_dist_matrix[i][j]
+            if similarity_score >= similarity_threshold:
+                similarities.append({
+                    "post_id": str(ids[j]),
+                    "similarity": float(similarity_score)
+                })
+
+        bulk_ops.append(
+            UpdateOne(
+                {"_id": doc_id},
+                {
+                    "$set": {
+                        PostFields.cluster: cluster_label,
+                        PostFields.similarities: sorted(similarities, key=lambda x: -x["similarity"])
+                    }
+                }
+            )
+        )
+
+        if links[i]:
+            post_node = PostNode(link=links[i], cluster=cluster_label)
+            post_node.merge()
+
     if bulk_ops:
         collection.bulk_write(bulk_ops)
 
-    cluster_dist = {int(k): int(v) for k, v in Counter(labels).items()}
-    logger.info("클러스터링 완료.")
+    mask = final_labels != -1
+    silhouette_avg = -1
+    if np.sum(mask) > 1 and len(set(final_labels[mask])) > 1:
+        silhouette_avg = silhouette_score(umap_embeddings[mask], final_labels[mask])
+
+    cluster_dist = {int(k): int(v) for k, v in Counter(final_labels).items()}
+    logger.info("Multi-view clustering completed.")
 
     return {
-        "message": "Clustering with UMAP+HDBSCAN completed.",
+        "message": "Multi-view clustering (Distance Combination) completed.",
+        "weights": weights,
         "total_documents": len(documents),
         "clustered_documents": int(np.sum(mask)),
-        "noise_documents": int(list(labels).count(-1)),
-        "number_of_clusters": len(set(labels)) - (1 if -1 in labels else 0),
+        "noise_documents": int(list(final_labels).count(-1)),
+        "number_of_clusters": len(set(final_labels)) - (1 if -1 in final_labels else 0),
         "cluster_distribution": cluster_dist,
         "silhouette_score": float(silhouette_avg)
-    }
-
-
-def save_silhouette_plot(distance_matrix, labels, filename_prefix="silhouette_plot"):
-    """
-    실루엣 플롯을 생성하고 지정된 경로에 이미지 파일로 저장합니다.
-    """
-    # 노이즈(-1)를 제외한 클러스터 레이블과 데이터만 사용
-    mask = labels != -1
-    if np.sum(mask) < 2 or len(set(labels[mask])) < 2:
-        logger.info("유효한 클러스터가 부족하여 실루엣 플롯을 생성할 수 없습니다.")
-        return
-
-    # 실루엣 점수 계산
-    silhouette_vals = silhouette_samples(distance_matrix, labels)
-    silhouette_avg = np.mean(silhouette_vals[mask])
-    
-    plt.figure(figsize=(10, 8))
-    
-    y_lower = 10
-    cluster_labels = np.unique(labels[mask])
-
-    # 각 클러스터의 실루엣 플롯을 그립니다.
-    for i, cluster in enumerate(cluster_labels):
-        cluster_silhouette_vals = silhouette_vals[labels == cluster]
-        cluster_silhouette_vals.sort()
-        
-        size_cluster_i = cluster_silhouette_vals.shape[0]
-        y_upper = y_lower + size_cluster_i
-        
-        plt.fill_betweenx(np.arange(y_lower, y_upper), 0, cluster_silhouette_vals,
-                          label=f'Cluster {cluster}')
-        y_lower = y_upper + 10
-
-    plt.axvline(x=silhouette_avg, color="red", linestyle="--", label="Average")
-    plt.title("Silhouette Plot for the Various Clusters")
-    plt.xlabel("Silhouette coefficient values")
-    plt.ylabel("Cluster label")
-    plt.legend()
-
-    # 현재 시간을 이용해 고유한 파일명 생성
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{filename_prefix}_{timestamp}.png"
-    
-    plt.savefig(filename)
-    plt.close() # 메모리 누수 방지를 위해 plot을 닫아줍니다.
-    logger.info(f"실루엣 플롯이 '{filename}' 파일로 저장되었습니다.")
-
-def calculate_custom_distance_matrix(documents, weights, umap_params):
-    """
-    각 벡터를 UMAP으로 차원 축소한 후, 거리 행렬을 계산하고 가중합합니다.
-    """
-
-    doc_embeddings = np.array([doc['doc_embedding'] for doc in documents], dtype=np.float64)
-    price_embeddings = np.array([doc['price_embedding'] for doc in documents], dtype=np.float64)
-    tfidf_vectors = np.array([doc['tfidf_vector'] for doc in documents], dtype=np.float64)
-
-    # [수정] 함수 상단의 고정된 umap_model 정의 삭제
-
-    if umap_params:
-        logger.info(f"UMAP으로 차원 축소 수행 (params: {umap_params})")
-        
-        if 'doc' in umap_params:
-            umap_model = umap.UMAP(**umap_params['doc'])
-            doc_embeddings = umap_model.fit_transform(doc_embeddings)
-            logger.info(f"문서 임베딩 -> {doc_embeddings.shape[1]} 차원으로 축소 완료.")
-
-        if 'price' in umap_params:
-            umap_model = umap.UMAP(**umap_params['price'])
-            # 가격 임베딩에 0이 아닌 값이 하나라도 있을 때만 UMAP 실행
-            if np.any(price_embeddings):
-                price_embeddings = umap_model.fit_transform(price_embeddings)
-                logger.info(f"가격 임베딩 -> {price_embeddings.shape[1]} 차원으로 축소 완료.")
-            else:
-                # 모든 값이 0이면 UMAP은 오류를 일으키므로 건너뛰고 0 벡터 유지
-                logger.info("가격 임베딩이 모두 0이므로 UMAP 적용을 건너뜁니다.")
-
-
-        if 'keyword' in umap_params:
-            umap_model = umap.UMAP(**umap_params['keyword'])
-            tfidf_vectors = umap_model.fit_transform(tfidf_vectors)
-            logger.info(f"키워드 벡터 -> {tfidf_vectors.shape[1]} 차원으로 축소 완료.")
-
-    doc_dist = 1 - cosine_similarity(doc_embeddings)
-    price_dist = 1 - cosine_similarity(price_embeddings)
-    tfidf_dist = 1 - cosine_similarity(tfidf_vectors)
-    
-    scaler = MinMaxScaler()
-    doc_dist_scaled = scaler.fit_transform(doc_dist.flatten().reshape(-1, 1)).reshape(doc_dist.shape)
-    price_dist_scaled = scaler.fit_transform(price_dist.flatten().reshape(-1, 1)).reshape(price_dist.shape)
-    tfidf_dist_scaled = scaler.fit_transform(tfidf_dist.flatten().reshape(-1, 1)).reshape(tfidf_dist.shape)
-    
-    final_dist_matrix = (weights['doc'] * doc_dist_scaled + 
-                         weights['price'] * price_dist_scaled + 
-                         weights['keyword'] * tfidf_dist_scaled)
-    
-    np.fill_diagonal(final_dist_matrix, 0)
-    
-    logger.info("커스텀 거리 행렬 계산 완료.")
-    return final_dist_matrix
-
-
-def cluster_with_custom_metric(
-    umap_params,
-    weights,
-    hdbscan_params
-):
-    
-    query = {
-        "doc_embedding": {"$exists": True},
-        "price_embedding": {"$exists": True},
-        "tfidf_vector": {"$exists": True}
-    }
-    documents = list(collection.find(query, {"_id": 1, "link": 1, "doc_embedding": 1, "price_embedding": 1, "tfidf_vector": 1}))
-    
-    if len(documents) < hdbscan_params.get('min_cluster_size', 5):
-        return {"error": "Not enough documents with all required vectors to cluster."}
-
-    logger.info(f"총 {len(documents)}개 게시물에 대한 커스텀 거리 기반 클러스터링 시작 (알고리즘: hdbscan).")
-
-    ids = [doc["_id"] for doc in documents]
-    links = [doc.get("link") for doc in documents]
-
-    distance_matrix = calculate_custom_distance_matrix(documents, weights, umap_params)
-
-
-    logger.info(f"HDBSCAN 클러스터링 수행 (params: {hdbscan_params})...")
-    clusterer = hdbscan.HDBSCAN(metric='precomputed', **hdbscan_params)
-
-
-    labels = clusterer.fit_predict(distance_matrix)
-
-    save_silhouette_plot(distance_matrix, labels, filename_prefix="custom_hdbscan_silhouette")
-
-    mask = labels != -1
-    silhouette_avg = -1
-    if np.sum(mask) > 1 and len(set(labels[mask])) > 1:
-        silhouette_avg = silhouette_score(distance_matrix[mask], labels[mask])
-        davies_bouldin_val = davies_bouldin_score(distance_matrix, labels)
-
-    unique_labels = set(labels)
-    num_clusters = len(unique_labels) - (1 if -1 in unique_labels else 0)
-
-    # 결과 업데이트 및 저장
-    bulk_ops = []
-    for idx, doc_id in enumerate(ids):
-        cluster_label = int(labels[idx])
-        bulk_ops.append(UpdateOne({"_id": doc_id}, {"$set": {"cluster_label": cluster_label}}))
-        # run_cypher(
-        #     "MERGE (p:Post {link: $link}) ON MATCH SET p.cluster = $cluster",
-        #     parameters={"link": links[idx], "cluster": cluster_label}
-        # )
-    
-    if bulk_ops:
-        collection.bulk_write(bulk_ops)
-
-    cluster_dist = {int(k): int(v) for k, v in Counter(labels).items()}
-    logger.info("클러스터링 완료.")
-
-    return {
-        "message": f"Clustering with custom distance metric hdbscan completed.",
-        "total_documents": len(documents),
-        "clustered_documents": int(np.sum(labels != -1)),
-        "noise_documents": int(list(labels).count(-1)),
-        "number_of_clusters": num_clusters,
-        "cluster_distribution": cluster_dist,
-        "silhouette_score": float(silhouette_avg),
-        "DBI": float(davies_bouldin_val) #
     }

@@ -285,6 +285,13 @@ class Post(BaseMongoObject):
         alias=PostFields.similarities,
     )
 
+    def model_dump_only_insert(self):
+        return {k: v for k, v in self.model_dump().items() if k != "similarities"}
+
+    def model_dump_only_update(self):
+        return {k: v for k, v in self.model_dump().items() if k == "similarities"}
+
+
     def __eq__(self, other):
         return self.link == other.link and self.text == other.text
 
@@ -303,7 +310,10 @@ class Post(BaseMongoObject):
         try:
             result = post_collection.update_one(
                 filter={"link": self.link},
-                update={"$setOnInsert": self.model_dump()}, # 같은 link를 가지는 값이 없을 때에만 값 추가
+                update={
+                    "$set": self.model_dump_only_update(),
+                    "$setOnInsert": self.model_dump_only_insert(),
+                }, # 같은 link를 가지는 값이 없을 때에만 값 추가
                 upsert=True,
             )
             if result.upserted_id:
