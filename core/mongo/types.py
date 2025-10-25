@@ -79,3 +79,9 @@ class ChannelStatus(str, Enum):
     INACTIVE = "inactive"
     RESTRICTED = "restricted"
     BANNED = "banned"
+
+
+class MediaTypes(StrEnum):
+    PHOTO = "photo"
+    VIDEO = "video"
+    DOCUMENT = "document"

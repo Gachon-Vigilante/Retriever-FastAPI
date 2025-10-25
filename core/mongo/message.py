@@ -10,26 +10,43 @@ This module defines Pydantic models for storing Telegram messages collected
 from Telethon in MongoDB. It includes all message attributes and provides
 data validation, serialization, and MongoDB storage functionality.
 """
-
+import os
+from urllib.parse import quote
+from dotenv import load_dotenv
 from datetime import datetime
 from enum import StrEnum
-from typing import Optional, Any
+from typing import Optional, Any, Self
 
+import oci
+from oci.config import validate_config
 import pymongo
-from pydantic import Field, ConfigDict
+from pydantic import Field, ConfigDict, BaseModel
 from pymongo.errors import DuplicateKeyError
-from telethon.tl.types import Message as TelethonMessage
+from telethon import TelegramClient
+from telethon.tl.types import Message as TelethonMessage, MessageMediaPhoto, MessageMediaDocument
 
 from utils import Logger
 from .base import BaseMongoObject
 from .connections import MongoCollections
-from .types import SenderType
+from .types import SenderType, MediaTypes
 
 logger = Logger(__name__)
 
 protected_fields = [
     "updated_at"
 ]
+
+load_dotenv()
+
+config = {
+    "user": os.getenv("OCI_CONFIG_USER_ID"),
+    "key_content": os.getenv("OCI_CONFIG_KEY_CONTENT"),
+    "fingerprint": os.getenv("OCI_CONFIG_FINGERPRINT"),
+    "tenancy": os.getenv("OCI_CONFIG_TENANCY"),
+    "region": os.getenv("OCI_CONFIG_REGION"),
+}
+
+validate_config(config)
 
 class MessageFields(StrEnum):
     channel_id = "channel_id"
@@ -49,6 +66,130 @@ class MessageFields(StrEnum):
     legacy = "legacy"
     grouped_id = "grouped_id"
     argots = "argots"
+
+
+class MessageMedia(BaseModel):
+    url: str = Field(
+        title="Public URL to bucket storage",
+        description="Public URL to bucket storage",
+        examples=["https://example.com/file.jpg"]
+    )
+    file_type: str = Field(
+        title="File Type",
+        description="File Type",
+        examples=["photo"]
+    )
+    mime_type: str = Field(
+        title="MIME Type",
+        description="MIME Type",
+        examples=["image/jpeg"]
+    )
+    file_id: Optional[int] = Field(
+        title="File ID",
+        description="File ID",
+        examples=["1234567890"]
+    )
+    access_hash: Optional[int] = Field(
+        title="Access Hash",
+        description="Access Hash",
+    )
+    file_size: Optional[int] = Field(
+        title="File Size",
+        description="File Size",
+        examples=[1024]
+    )
+
+    @classmethod
+    async def from_telethon(cls, message: TelethonMessage, client: TelegramClient, channel_id: int) -> Optional[Self]:
+        """
+        메시지에서 미디어(사진, 비디오, 문서)를 바이트 객체로 다운로드하고
+        상세 메타데이터를 포함한 자기 객체를 생성하여 반환합니다.
+        """
+
+        # 1. 대상 미디어가 있는지 확인 (사진, 비디오, 문서 순서로)
+        #    (message.video는 비디오 파일도 잡아내므로 .document보다 먼저 체크)
+        if not message.media:
+            return None
+
+        # telethon의 스마트 속성으로 타입 체크
+        if isinstance(message.media, MessageMediaPhoto):
+            file_type = MediaTypes.PHOTO
+            mime_type = "image/jpeg"
+            media_obj = message.media.photo
+        elif isinstance(message.media, MessageMediaDocument):
+            mime_type = message.media.document.mime_type
+            media_obj = message.media.document
+            if message.media.video: # video 속성은 파일이 비디오인지 아닌지만 알려줌. 접근하려면 document 속성 필요
+                file_type = MediaTypes.VIDEO
+            else:
+                file_type = MediaTypes.DOCUMENT
+        else:
+            return None
+
+        file_id = media_obj.id
+        access_hash = media_obj.access_hash
+
+        # 2. 미디어를 메모리(bytes)로 다운로드
+        try:
+            file_bytes = await client.download_media(
+                message=message,
+                file=bytes
+            )
+        except Exception as e:
+            logger.error(f"Message {message.id} 다운로드 실패: {e}")
+            return None
+
+        if not file_bytes:
+            logger.warning(f"Message {message.id}의 미디어를 다운로드했으나 다운로드한 파일이 비어 있습니다.")
+            return None
+
+        public_url = store_media(file_bytes, channel_id, message.id, mime_type)
+        if not public_url: return None
+
+        return cls(
+            url=public_url,
+            file_type=file_type,
+            file_id=file_id,
+            access_hash=access_hash,
+            file_size=len(file_bytes),
+            mime_type=mime_type,
+        )
+
+
+
+def store_media(file_bytes: bytes, channel_id: int, message_id: int, mime_type: str | None = None) -> str | None:
+    # OCI 정보
+    bucket_name = os.getenv("OCI_BUCKET_NAME")  # 대상 버킷 이름
+    object_name = f"{channel_id}/{message_id}"  # 버킷 내에서 저장될 객체 이름
+
+    # --- 2. OCI 클라이언트 설정 ---
+    object_storage_client = oci.object_storage.ObjectStorageClient(config)
+
+    # 네임스페이스 가져오기
+    namespace = object_storage_client.get_namespace().data
+
+    # --- 3. 바이트 객체 업로드 ---
+    object_storage_client.put_object(
+        namespace_name=namespace,
+        bucket_name=bucket_name,
+        object_name=object_name,
+        put_object_body=file_bytes,  # 바이트 객체를 직접 전달
+        content_length=len(file_bytes),
+        content_type=mime_type
+    )
+
+    # --- 5. 공개 URL 생성 ---
+    # 전체 URL을 조립해야 합니다.
+    region = config["region"]
+
+    # OCI 리전에 따라 호스트 이름이 다를 수 있습니다.
+    # 일반적인 상용 리전(eg: ap-seoul-1)의 URL 형식입니다.
+    # object name은 / 기호가 %2F로 변환되는 등 OCI 측에서 URL Path에 영향을 주지 않는 안전한 url encoding이 자동 적용되므로,
+    # 공개 URL도 그렇게 변환하여 저장해야 합니다.
+    public_url = f"https://objectstorage.{region}.oraclecloud.com/n/{namespace}/b/{bucket_name}/o/{quote(object_name)}"
+
+    return public_url
+
 
 class Message(BaseMongoObject):
     """텔레그램 메시지를 나타내는 MongoDB 문서 모델 (Telethon Message 기반)
@@ -316,32 +457,16 @@ class Message(BaseMongoObject):
         json_encoders = {
             datetime: lambda dt: dt.isoformat() if dt else None
         },
-        json_schema_extra = {
-            "example": {
-                "message_id": 12345,
-                "message": "안녕하세요! 이것은 예시 메시지입니다.",
-                "date": "2024-01-01T12:00:00Z",
-                "from_id": 123456789,
-                "channel_id": -1001234567890,
-                "out": False,
-                "mentioned": False,
-                "media": None,
-                "entities": [],
-                "views": 150,
-                "reactions": [
-                    {"emoticon": "👍", "count": 5, "chosen": False}
-                ]
-            }
-        }
     )
 
     @classmethod
-    def from_telethon(
+    async def from_telethon(
             cls,
             telethon_message: TelethonMessage,
             sender_id: Optional[int] = None,
             chat_id: Optional[int] = None,
             sender_type: Optional[SenderType] = None,
+            client: Optional[TelegramClient] = None,
     ) -> 'Message':
         """Telethon Message 객체를 Message 인스턴스로 변환하는 클래스 메서드
 
@@ -364,6 +489,7 @@ class Message(BaseMongoObject):
                                    Chat ID (when manually specified)
             sender_type (Optional[SenderType]): 발신자 타입 (수동 지정 시)
                                               Sender type (when manually specified)
+            client (Optional[TelegramClient]): Telethon client (
 
         Returns:
             Message: 변환된 Message 인스턴스
@@ -406,7 +532,7 @@ class Message(BaseMongoObject):
             legacy=telethon_message.legacy,
             grouped_id=telethon_message.grouped_id,
             # 미디어와 엔티티는 별도 처리 필요
-            media=None,
+            media=await MessageMedia.from_telethon(telethon_message, client=client, channel_id=chat_id),
             entities=[],
         )
 

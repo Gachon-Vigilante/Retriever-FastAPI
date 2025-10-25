@@ -123,16 +123,6 @@ class MongoCollections:
 
     @property
     @lru_cache(maxsize=1)
-    def channel_data(self) -> pymongo.collection.Collection:
-        return self.db.channel_data
-
-    @property
-    @lru_cache(maxsize=1)
-    def channel_similarity(self) -> pymongo.collection.Collection:
-        return self.db.channel_similarity
-
-    @property
-    @lru_cache(maxsize=1)
     def channel_info(self) -> pymongo.collection.Collection:
         return self.db.channel_info
 

@@ -37,6 +37,7 @@ dependencies = [
     "langchain-community>=0.3.31",
     "langgraph-checkpoint-mongodb>=0.2.1",
     "motor>=3.7.1", # needed in `from langchain_community.document_loaders import MongodbLoader`
+    "oci>=2.161.1",
 ]
 
 [project.optional-dependencies]

@@ -136,6 +136,4 @@ volumes:
   rabbitmq_data:
     driver: local
 
-  postgres_data:
-
   weaviate_data:
