@@ -27,8 +27,9 @@ from telethon.tl.types import Message as TelethonMessage, MessageMediaPhoto, Mes
 
 from utils import Logger
 from .base import BaseMongoObject
+from .channel import ChannelFields
 from .connections import MongoCollections
-from .types import SenderType, MediaTypes
+from .types import SenderType, MediaTypes, ChannelStatus
 
 logger = Logger(__name__)
 
@@ -586,6 +587,14 @@ class Message(BaseMongoObject):
             5. Insert new document directly if no existing document
         """
         chat_collection = MongoCollections().messages
+        # 채널 내의 채팅이 너무 많으면 채팅 범람에 대비해 비활성 채널로 간주하고 종료
+        if chat_collection.count_documents({MessageFields.channel_id: self.channel_id}) > 1000:
+            MongoCollections().channels.update_one(
+                filter={ChannelFields.channel_id: self.channel_id},
+                update={"$set": {ChannelFields.status: ChannelStatus.INACTIVE}},
+            )
+            return
+
         try:
             result = chat_collection.find_one_and_update(
                 filter={"message_id": self.message_id, "channel_id": self.channel_id, "message": self.message},
