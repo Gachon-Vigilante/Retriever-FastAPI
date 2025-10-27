@@ -26,10 +26,10 @@ weaviate_headers={
     "X-Cohere-Api-Key": os.getenv("COHERE_APIKEY"),
 }
 
-weaviate_http_host=os.getenv("WEAVIATE_HTTP_HOST")
-weaviate_http_port=int(os.getenv("WEAVIATE_HTTP_PORT"))
-weaviate_grpc_host=os.getenv("WEAVIATE_GRPC_HOST")
-weaviate_grpc_port=int(os.getenv("WEAVIATE_GRPC_PORT"))
+weaviate_http_host=os.getenv("WEAVIATE_HTTP_HOST", "localhost")
+weaviate_http_port=int(os.getenv("WEAVIATE_HTTP_PORT", 8888))
+weaviate_grpc_host=os.getenv("WEAVIATE_GRPC_HOST", "localhost")
+weaviate_grpc_port=int(os.getenv("WEAVIATE_GRPC_PORT", 50051))
 
 class WeaviateProperties(StrEnum):
     object_id = "object_id"

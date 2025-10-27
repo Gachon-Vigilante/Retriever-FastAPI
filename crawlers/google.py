@@ -34,25 +34,6 @@ class GoogleSearchEngine(SearchEngine):
     SearchEngine 추상 클래스를 구현하며, 검색 결과를 제너레이터로 반환하여
     소비자가 스트리밍 처리할 수 있도록 합니다.
     """
-
-    def search_all(
-            self,
-            queries: list[str],
-            limit: int,
-    ) -> Generator[Post, Any, None]:
-        """여러 검색어에 대해 순차적으로 검색 수행.
-
-        Args:
-            queries (list[str]): 검색어 리스트.
-            limit (int): 각 검색어 당 최대 결과 개수.
-
-        Yields:
-            Post: 검색 결과로부터 생성된 Post 모델.
-        """
-        for query in queries:
-            # 모든 검색어에 대해 각각 검색을 수행해서 모두 yield
-            yield from self.search(query, limit)
-
     def search(
             self,
             query: str,

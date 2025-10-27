@@ -1,3 +1,5 @@
+name: retriever-python
+
 # 실행하려는 서비스(컨테이너)들을 정의합니다.
 services:
   # 서비스의 논리적인 이름 (여기서는 'rabbitmq'로 지정)
@@ -102,8 +104,14 @@ services:
       context: .
       dockerfile: Dockerfile
       target: celery-base-worker # 기본 의존성만 포함된 스테이지 사용
-    command: uv run celery -A celery_app.app worker --pool=solo -l info -Q telegram.channel -c 2  -P threads -n worker.telegram.channel@%h
+    command: uv run celery -A celery_app.app worker --pool=solo -l info -Q telegram -c 2  -P threads -n worker.telegram.channel@%h
     depends_on: [rabbitmq, neo4j]
+    environment:
+      # 이 변수들이 .env 파일이나 쉘에 없으면 에러 발생
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:?필수 값 TELEGRAM_API_ID 가 설정되지 않았습니다.}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:?필수 값 TELEGRAM_API_HASH 가 설정되지 않았습니다.}
+      TELEGRAM_SESSION_STRING: ${TELEGRAM_SESSION_STRING:?필수 값 TELEGRAM_SESSION_STRING 이 설정되지 않았습니다.}
+      NEO4J_HOST: "neo4j"
 
   worker-poll:
     build:  
@@ -112,6 +120,8 @@ services:
       target: celery-base-worker # 기본 의존성만 포함된 스테이지 사용
     command: uv run celery -A celery_app.app worker --pool=solo -l info -Q poll -P threads -c 1 -n worker.poll@%h
     depends_on: [rabbitmq, neo4j]
+    environment:
+      NEO4J_HOST: "neo4j"
 
   beat:
     build:  
@@ -120,16 +130,24 @@ services:
       target: celery-base-worker # 기본 의존성만 포함된 스테이지 사용
     command: uv run celery -A celery_app.app beat -l info
     depends_on: [rabbitmq, neo4j]
+    profiles:
+      - "prod"
 
-  flower:
-    build:  
+  fastapi:
+    build:
       context: .
       dockerfile: Dockerfile
-      target: flower-service # flower 패키지가 포함된 스테이지 사용
-    command: uv run celery -A celery_app.app flower
+      target: fastapi-app
+    command: uv run uvicorn main:app --host 0.0.0.0 --port 8000
     ports:
-      - "5555:5555"
-    depends_on: [rabbitmq]
+      - "8000:8000"
+    depends_on: [neo4j, weaviate, text2vec-transformers]
+    environment:
+      NEO4J_HOST: "neo4j"
+      WEAVIATE_HTTP_HOST: "weaviate"
+      WEAVIATE_HTTP_PORT: "8888"
+      WEAVIATE_GRPC_HOST: "weaviate"
+      WEAVIATE_GRPC_PORT: "50051"
 
 # (선택 사항) 위에서 사용한 볼륨(rabbitmq_data)을 명시적으로 정의합니다.
 volumes:

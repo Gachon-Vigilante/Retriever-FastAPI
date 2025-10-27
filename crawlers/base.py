@@ -9,7 +9,7 @@
 Google 스타일의 한국어 docstring을 사용하며, 기능 변경 없이 문서화만 수행합니다.
 """
 import re
-from typing import Optional, Callable, Coroutine, Any
+from typing import Any, Generator
 import aiohttp
 from pydantic import BaseModel, Field
 from lxml import html, etree
@@ -84,6 +84,24 @@ class SearchEngine:
         self.keywords = keywords
         self.limit = limit
         self.max_retries = max_retries
+
+    def search_all(
+            self,
+            queries: list[str],
+            limit: int,
+    ) -> Generator[Post, Any, None]:
+        """여러 검색어에 대해 순차적으로 검색 수행.
+
+        Args:
+            queries (list[str]): 검색어 리스트.
+            limit (int): 각 검색어 당 최대 결과 개수.
+
+        Yields:
+            Post: 검색 결과로부터 생성된 Post 모델.
+        """
+        for query in queries:
+            # 모든 검색어에 대해 각각 검색을 수행해서 모두 yield
+            yield from self.search(keyword=query, limit=limit)
 
     def search(
             self,

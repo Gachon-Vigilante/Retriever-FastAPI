@@ -38,6 +38,7 @@ dependencies = [
     "langgraph-checkpoint-mongodb>=0.2.1",
     "motor>=3.7.1", # needed in `from langchain_community.document_loaders import MongodbLoader`
     "oci>=2.161.1",
+    "serpapi>=0.1.5",
 ]
 
 [project.optional-dependencies]
@@ -56,11 +57,6 @@ ai_worker = [
     "torch",
     "transformers",
     "umap-learn",
-]
-
-# Flower 처럼 가벼운 Celery 관련 서비스 그룹
-flower = [
-    "flower",
 ]
 
 [tool.setuptools.packages.find]

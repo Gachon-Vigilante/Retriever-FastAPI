@@ -252,8 +252,8 @@ class Channel(BaseMongoObject):
     )
 
     # === 커스텀 상태 및 분석 ===
-    status: ChannelStatus = Field(
-        default=ChannelStatus.ACTIVE,
+    status: ChannelStatus | None = Field(
+        default=None,
         title="채널 상태",
         description="채널의 현재 상태 (커스텀 필드)",
         examples=["active", "inactive"]

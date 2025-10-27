@@ -295,6 +295,9 @@ class Post(BaseMongoObject):
     def __eq__(self, other):
         return self.link == other.link and self.text == other.text
 
+    def __str__(self):
+        return f"Post(title={self.title}, link={self.link})"
+
     def store(self) -> ObjectId | None:
         """게시글 문서를 MongoDB에 업서트합니다.
 
