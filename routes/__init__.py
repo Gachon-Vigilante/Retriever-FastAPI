@@ -32,6 +32,7 @@ from .teleprobe import router as teleprobe_router
 from .crawler import router as crawler_router
 from .analyzer import router as analyzer_router
 from .watson import watson_router
+from .polling import polling_router
 
 root_router = APIRouter(prefix="")
 
@@ -39,3 +40,4 @@ root_router.include_router(teleprobe_router)
 root_router.include_router(crawler_router)
 root_router.include_router(analyzer_router)
 root_router.include_router(watson_router)
+root_router.include_router(polling_router)

@@ -87,6 +87,7 @@ async def start_serpapi_crawler(request: CrawlerRequestBody):
         limit=request.limit,
         max_retries=request.max_retries
     )
-    await crawler.crawl()
+    for post in crawler.search_all(queries=crawler.keywords, limit=crawler.limit):
+        logger.debug(post)
 
     return SuccessfulResponse()
