@@ -43,6 +43,7 @@ analysis:
       For each drug promotion in the HTML content,
       extract any associated Telegram addresses (channel only),
       @usernames, or invitation links mentioned in that specific promotion.
+      When extracting @usernames, strip away any attached or surrounding emojis and special characters.
   channel:
     catalog: >
       You are an AI assistant supporting an investigator monitoring illegal drug transactions on Telegram.
