@@ -13,11 +13,16 @@ Google 스타일의 한국어 docstring을 사용합니다.
 
 import os
 import requests
-from typing import List
+from typing import List, Generator, Any
+import serpapi
 
 from core.mongo.post import Post
 from crawlers.base import SearchEngine
+from urllib.parse import urlparse
 
+from utils import Logger
+
+logger = Logger(__name__)
 
 class SerpApiSearchEngine(SearchEngine):
     """SerpApi Google 검색 엔진 구현체
@@ -25,17 +30,17 @@ class SerpApiSearchEngine(SearchEngine):
     SearchEngine 추상 클래스를 구현하여 주어진 키워드에 대한 Google 검색 결과를
     Post 모델 리스트로 변환합니다.
     """
-
     def search(
             self,
             keyword: str,
-            limit: int,
-    ) -> List[Post]:
+            limit: int = 10,
+            engine: str = "google",
+    ) -> Generator[Post, Any, None]:
         """키워드로 SerpApi 검색을 수행합니다.
 
         Args:
             keyword (str): 검색어(키워드).
-            limit (int): 최대 결과 개수(최대 100까지 num 파라미터로 요청).
+            limit (int): 최대 결과 개수(최대 10까지 num 파라미터로 요청).
 
         Returns:
             list[Post]: 검색 결과를 Post 모델로 정규화한 리스트. 실패 시 빈 리스트.
@@ -47,34 +52,57 @@ class SerpApiSearchEngine(SearchEngine):
         api_key = os.getenv("SERPAPI_API_KEY")
         if not api_key:
             # 간단한 예외 처리: 키가 없으면 빈 결과 반환 (라우트에서 처리)
-            return []
+            return None
 
         params = {
-            "engine": "google",
+            "api_key": api_key,  # SerpAPI 키
+            "engine": engine,
             "q": keyword,
-            "hl": "ko",
-            "gl": "kr",
-            "api_key": api_key,
-            "num": min(limit, 100),
+            "hl": "ko",  # 한국어로 검색
+            "gl": "kr",  # 한국 지역에서 검색
+            "nfpr": 1,  # 자동 교정된 검색 제외
+            "lr": "lang_ko",  # 검색 결과에서 한국어만 반환
+            "safe": "off",  # 성인 콘텐츠 검열 안함
         }
-        try:
-            resp = requests.get("https://serpapi.com/search.json", params=params, timeout=15)
-            data = resp.json()
-        except Exception:
-            # 네트워크 오류 또는 JSON 파싱 실패 등은 상위에서 재시도할 수 있도록 빈 결과 반환
-            return []
 
-        results: List[Post] = []
-        for item in data.get("organic_results", [])[:limit]:
-            link = item.get("link")
-            title = item.get("title") or ""
-            # 도메인 정규화: source 우선, 없으면 displayed_link 사용
-            domain = None
-            if isinstance(item.get("source"), str):
-                domain = item.get("source")
-            if not domain and isinstance(item.get("displayed_link"), str):
-                domain = item.get("displayed_link")
-            if link:
-                results.append(Post(title=title, link=link, domain=domain or ""))
-        return results
+        serpapi_result = serpapi.search(
+            q=keyword,
+            engine=engine,
+            location="Seoul,Seoul,South Korea",
+            hl="ko",
+            gl="kr",
+            nfpr=1,
+            lr="lang_ko",
+            safe="off",
+            api_key=api_key,
+        )
 
+        while serpapi_result and serpapi_result.get("organic_results"):
+            for item in serpapi_result["organic_results"]:
+                if limit < 1: break
+                if item.get("link"):
+                    yield Post(
+                        title=item.get("title", "Unknown Title"),
+                        link=item.get("link"),
+                        domain=urlparse(item.get("link")).netloc,
+                        site_name=item.get("displayLink"),
+                    )
+
+                limit -= 1
+
+            if limit < 1: break
+            # 다음 페이지가 있고, 검색 가능 결과 수가 남았을 경우 다음 페이지로 다시 검색
+            if next_link := serpapi_result["serpapi_pagination"].get("next"):
+                try:
+                    response = requests.get(next_link, params={"api_key": api_key}, timeout=30) # "serpapi의 "next"에는 API KEY는 빠져 있으므로, 다시 지정해 주어야 함.
+                except Exception as e:
+                    logger.error(e)
+                    break
+                if response.status_code == 200:
+                    serpapi_result = response.json()
+                else:
+                    logger.warning(f"SerpApi returned with an error message: {response.text}")
+                    return None
+            else:  # 다음 페이지가 없거나 최대 검색 수에 도달했을 경우 검색 중단
+                return None
+        return None
