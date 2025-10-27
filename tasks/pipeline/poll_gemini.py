@@ -9,7 +9,6 @@ import asyncio
 from celery import shared_task
 
 from core.mongo.connections import MongoCollections
-from core.mongo.schemas import Post
 from genai.analyzers.post import PostAnalyzer
 from utils import Logger
 from .telegram import telegram_channel_task
@@ -54,7 +53,7 @@ async def invoke_telegram_task():
         # 1. [최적화] 처리할 identifier가 있는 문서만 빠르게 추려냄 (인덱스가 있다면 매우 빠름)
         {
             "$match": {
-                "analysis.promotions.identifiers.is_processed": {"$ne": True}
+                "analysis.promotions.identifiers.is_processed": {"$in": [False, None]}
             }
         },
         # 2. promotions 배열을 개별 문서로 풀면서 인덱스를 'promotion_idx' 필드에 저장
@@ -97,16 +96,15 @@ async def invoke_telegram_task():
         }
     ]
     results = post_collection.aggregate(pipeline)
+    result_count = 0
     for result_doc in results:
-        logger.info(
-            f"텔레그램 추적을 시도할 identifier 발견. "
-            f"post ID: {result_doc['original_doc_id']}, "
-            f"identifier: {result_doc['identifier']}, "
-            f"path: {result_doc['path']}"
-        )
         telegram_channel_task.delay(
             result_doc['identifier'],
             str(result_doc['original_doc_id']),
             result_doc['path'],
         )
-                
+        result_count += 1
+
+    logger.info(
+        f"텔레그램 추적을 시도할 identifier를 발견하고 텔레그램 작업을 시작했습니다. 개수: {result_count}"
+    )

@@ -25,9 +25,12 @@ from celery import shared_task
 from pymongo import ReturnDocument
 
 from core.constants import TELEGRAM_API_ID, TELEGRAM_API_HASH, TELEGRAM_SESSION_STRING
+from core.mongo.channel import ChannelFields
 from core.mongo.connections import MongoCollections
 from core.mongo.post import PostFields
+from core.mongo.types import ChannelStatus
 from core.neo4j.ogm import PostNode, ChannelNode, Promotes
+from genai.analyzers.channel import is_channel_active
 from handlers import ChannelHandler, MessageHandler
 from teleprobe import TeleprobeClient
 from teleprobe.errors import ACCEPTABLE_EXCEPTIONS
@@ -74,32 +77,51 @@ def telegram_channel_task(channel_identifier: str, post_id: str | None = None, m
                 if post_id and mongo_path:
                     result = post_collection.find_one_and_update(
                         filter={"_id": post_id},
-                        update={"$set": {mongo_path+".channel_id": channel.channel_id}},
+                        update={"$set": {mongo_path+".channel_id": channel.id}},
                         projection={"_id": 1, PostFields.link: 1},
                         return_document=ReturnDocument.AFTER
                     )
                     Promotes.merge(
                         post=PostNode.from_mongo(result),
-                        channel=ChannelNode(channel_id=channel.channel_id),
+                        channel=ChannelNode(channel_id=channel.id),
                     )
                     if result:
                         logger.info(f"채널 식별자에 연결된 채널 ID를 MongoDB에 입력했습니다. post ID: {post_id}, path: {mongo_path}")
                     else:
                         logger.error(f"post ID 또는 mongoDB path가 잘못 입력되었습니다. post ID: {post_id}, path: {mongo_path}")
 
-                response = requests.post(
-                    url=urljoin(os.getenv("FASTAPI_HOST"), f"/api/v1/channel/{channel.channel_id}/monitor"),
-                    timeout=10,
-                )
-                logger.info(f"FastAPI 서버에 채널 모니터링을 요청했습니다. "
-                            f"status code: {response.status_code}, response: {response.text}")
-
                 # 채널 메시지 전체 수집 및 저장
                 logger.info(f"채널 메시지 수집을 시도합니다: {channel_identifier}")
                 channel_entity = await client.get_channel(channel_identifier, ChannelHandler())
+
+                is_active = True
                 async for _ in client.iter_messages(channel_entity, MessageHandler()):
-                    pass
-                logger.info(f"채널 내의 모든 메세지를 수집하고 DB에 저장했습니다: {channel_identifier}")
+                    if MongoCollections().channels.find_one(
+                            {ChannelFields.channel_id: channel_entity.id}
+                    ).get(ChannelFields.status) == ChannelStatus.INACTIVE:
+                        logger.info(f"이미 비활성 채널로 확인된 채널입니다. 채널 메시지 수집을 종료합니다: "
+                                    f"ID: {channel_identifier}, username: @{channel_entity.username}")
+                        is_active = False
+                        break
+
+                if is_active:
+                    logger.info(f"채널 내의 모든 메세지를 수집하고 DB에 저장했습니다: {channel_identifier}")
+
+                    MongoCollections().channels.update_one(
+                        filter={ChannelFields.channel_id: channel_entity.id},
+                        update={"$set": {
+                            ChannelFields.status: ChannelStatus.ACTIVE
+                            if is_channel_active(channel_entity.id)
+                            else ChannelStatus.INACTIVE
+                        }},
+                    )
+
+                    response = requests.post(
+                        url=urljoin(os.getenv("FASTAPI_HOST"), f"/api/v1/teleprobe/channel/{channel.id}/monitor"),
+                        timeout=10,
+                    )
+                    logger.info(f"FastAPI 서버에 채널 모니터링을 요청했습니다. "
+                                f"status code: {response.status_code}, response: {response.text}")
 
                 if post_id and mongo_path:
                     result = post_collection.update_one(
