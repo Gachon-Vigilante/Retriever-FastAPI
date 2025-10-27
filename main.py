@@ -12,6 +12,7 @@ It provides application lifecycle management, router registration, and health ch
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from utils import Logger
 from routes import root_router
@@ -20,7 +21,6 @@ from watson.vectorstore.weaviate import register_schema
 
 setup_celery()
 logger = Logger(__name__)
-
 
 @asynccontextmanager
 async def lifespan(fastapi_app: FastAPI):
@@ -49,6 +49,22 @@ async def lifespan(fastapi_app: FastAPI):
     yield
 
 app = FastAPI(lifespan=lifespan)
+
+# 허용할 오리진(origin) 목록
+# "*"는 모든 오리진을 허용함을 의미합니다.
+# 보안을 위해 실제 프로덕션 환경에서는 구체적인 도메인을 명시하는 것이 좋습니다.
+origins = [
+    "*",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,       # origins 목록에 있는 도메인에서의 요청을 허용
+    allow_credentials=True,    # 쿠키를 포함한 요청을 허용 (True 설정 시 allow_origins="*" 사용 불가)
+    allow_methods=["*"],       # 모든 HTTP 메소드 허용 (GET, POST, PUT, DELETE 등)
+    allow_headers=["*"],       # 모든 HTTP 헤더 허용
+)
+
 app.include_router(root_router)
 
 @app.get("/healthcheck")
