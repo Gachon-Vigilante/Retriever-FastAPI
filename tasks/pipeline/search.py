@@ -13,10 +13,9 @@ from typing import List
 
 from celery import shared_task
 
-from crawlers.google import GoogleSearchEngine
 from crawlers.base import is_telegram_link
+from crawlers.serpapi import SerpApiSearchEngine
 from utils import Logger
-
 from .crawl import crawl_page_task
 from .telegram import telegram_channel_task
 from ..names import SEARCH_TASK_NAME
@@ -42,7 +41,7 @@ def search_pages_task(keywords: List[str], limit: int = 10, max_retries: int = 3
         - 텔레그램 링크는 telegram_channel_task 큐로 발행합니다.
         - 일반 웹페이지는 MongoDB에 업서트 저장 후 crawl_page_task 큐로 발행합니다.
     """
-    crawler = GoogleSearchEngine(keywords=keywords, limit=limit, max_retries=max_retries)
+    crawler = SerpApiSearchEngine(keywords=keywords, limit=limit, max_retries=max_retries)
     telegram_link_count = 0
     webpage_count = 0
     for post in crawler.search_all(keywords, limit):
