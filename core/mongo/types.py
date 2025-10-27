@@ -44,7 +44,7 @@ class SenderType(StrEnum):
     CHANNEL = "channel"
 
 
-class ChannelStatus(str, Enum):
+class ChannelStatus(StrEnum):
     """텔레그램 채널의 상태를 나타내는 문자열 열거형
 
     채널의 현재 접근 가능성과 제한 상태를 분류합니다.
