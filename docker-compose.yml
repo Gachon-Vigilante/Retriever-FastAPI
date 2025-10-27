@@ -104,8 +104,14 @@ services:
       context: .
       dockerfile: Dockerfile
       target: celery-base-worker # 기본 의존성만 포함된 스테이지 사용
-    command: uv run celery -A celery_app.app worker --pool=solo -l info -Q telegram.channel -c 2  -P threads -n worker.telegram.channel@%h
+    command: uv run celery -A celery_app.app worker --pool=solo -l info -Q telegram -c 2  -P threads -n worker.telegram.channel@%h
     depends_on: [rabbitmq, neo4j]
+    environment:
+      # 이 변수들이 .env 파일이나 쉘에 없으면 에러 발생
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:?필수 값 TELEGRAM_API_ID 가 설정되지 않았습니다.}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:?필수 값 TELEGRAM_API_HASH 가 설정되지 않았습니다.}
+      TELEGRAM_SESSION_STRING: ${TELEGRAM_SESSION_STRING:?필수 값 TELEGRAM_SESSION_STRING 이 설정되지 않았습니다.}
+      NEO4J_HOST: "neo4j"
 
   worker-poll:
     build:  
@@ -114,6 +120,8 @@ services:
       target: celery-base-worker # 기본 의존성만 포함된 스테이지 사용
     command: uv run celery -A celery_app.app worker --pool=solo -l info -Q poll -P threads -c 1 -n worker.poll@%h
     depends_on: [rabbitmq, neo4j]
+    environment:
+      NEO4J_HOST: "neo4j"
 
   beat:
     build:  
@@ -122,16 +130,8 @@ services:
       target: celery-base-worker # 기본 의존성만 포함된 스테이지 사용
     command: uv run celery -A celery_app.app beat -l info
     depends_on: [rabbitmq, neo4j]
-
-  flower:
-    build:  
-      context: .
-      dockerfile: Dockerfile
-      target: flower-service # flower 패키지가 포함된 스테이지 사용
-    command: uv run celery -A celery_app.app flower
-    ports:
-      - "5555:5555"
-    depends_on: [rabbitmq]
+    profiles:
+      - "prod"
 
   fastapi:
     build:
