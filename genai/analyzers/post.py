@@ -39,7 +39,7 @@ from pymongo.synchronous.client_session import ClientSession
 from core.mongo.connections import MongoCollections, mongo_client
 from core.mongo.post import Post, PostAnalysisResult, TelegramPromotion, PostFields
 from core.neo4j.ogm import PostNode
-from utils import Logger
+from utils import Logger, normalize_whitespace_structured
 from ..models import prompts
 
 logger = Logger(__name__)
@@ -129,7 +129,7 @@ class PostAnalyzer:
 
     def __init__(self):
         self.collections = MongoCollections()
-        self.client = genai.Client()
+        self.client = genai.Client().aio
 
 
     async def __aenter__(self):
@@ -138,7 +138,8 @@ class PostAnalyzer:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        return None
+        if self.client:
+            await self.client.aclose()
 
     async def _flip_accepting_job_to_pending(self, session: ClientSession | None = None) -> ObjectId | None:
         await self._ensure_accepting_requests_job(session=session)
@@ -205,7 +206,11 @@ class PostAnalyzer:
         )
         return cls.template + [
             {
-                "parts": [{"text": f"{instruction}\n\nTitle: {post.title} \n\nContent: {post.text}"}],
+                "parts": [{
+                    "text": f"{instruction}\n\n "
+                            f"Title: {post.title} \n\n"
+                            f"Content: {normalize_whitespace_structured(post.text)}"
+                }],
                 "role": "user"
             },
         ]
@@ -378,14 +383,14 @@ class PostAnalyzer:
                 try:
                     job_id = str(job["_id"])[:8]
                     current_time = datetime.now().strftime("%Y%m%d-%H%M%S")
-                    uploaded_file = self.client.files.upload(
+                    uploaded_file = await self.client.files.upload(
                         file=temp_path,
                         config=types.UploadFileConfig(
                             display_name=f"file-{job_id}-{current_time}",
                             mime_type="jsonl"
                         )
                     )
-                    batch_job = self.client.batches.create(
+                    batch_job = await self.client.batches.create(
                         model="gemini-2.5-flash",
                         src=uploaded_file.name,
                         config=CreateBatchJobConfig(
@@ -433,7 +438,7 @@ class PostAnalyzer:
 
         for job in active_jobs:
             try:
-                batch_info = self.client.batches.get(name=job["name"]) if job.get("name") else None
+                batch_info = await self.client.batches.get(name=job["name"]) if job.get("name") else None
                 if batch_info is None:
                     logger.warning(f"배치 작업이 MongoDB에 저장되었지만, gemini batch 대기열에 없습니다. job id: {job.get('_id')}")
                     continue
@@ -471,25 +476,6 @@ class PostAnalyzer:
 
         return processed_job_names
 
-    async def get_job_statistics(self) -> Dict[str, Any]:
-        """Job 통계 조회 (Mongo)"""
-        jobs_col = self.collections.analysis_jobs
-        req_col = self.collections.gemini_requests
-        # 상태별 Job 개수
-        status_counts: Dict[str, int] = {}
-        for status in JobStatus:
-            status_counts[status.value] = jobs_col.count_documents({"status": status.value})
-        # 대기 중인 요청 수: accepting + pending, 미처리
-        pending_job_ids = [j["_id"] for j in jobs_col.find({"status": {"$in": [JobStatus.ACCEPTING_REQUESTS.value, JobStatus.PENDING.value]}})]
-        pending_requests = req_col.count_documents({"batch_job_id": {"$in": pending_job_ids} , "is_processed": False}) if pending_job_ids else 0
-        processed_requests = req_col.count_documents({"is_processed": True})
-        return {
-            "job_status_counts": status_counts,
-            "pending_requests": pending_requests,
-            "processed_requests": processed_requests,
-            "total_requests": pending_requests + processed_requests,
-        }
-
     async def reset_batch(self):
         """배치 상태 리셋 - 모든 Job을 정리하고 새로 시작 (Mongo)"""
         jobs_col = self.collections.analysis_jobs
@@ -514,7 +500,7 @@ class PostAnalyzer:
         logger.info(f"Gemini에서 처리가 완료된 작업 {job_completion_result.processed_job_count}개가 발견되었습니다.")
 
         for job in processed_jobs:
-            batch_info = self.client.batches.get(name=job.get("name")) if job.get("name") else None
+            batch_info = await self.client.batches.get(name=job.get("name")) if job.get("name") else None
             if batch_info is None:
                 logger.warning(f"MongoDB에 gemini 작업 성공으로 표시된 배치 작업이 gemini batch 대기열에 없습니다. job id: {job.get('_id')}")
                 continue
@@ -525,7 +511,7 @@ class PostAnalyzer:
             # If a batch job was created with a file, Results are in a file
             result_file_name = batch_info.dest.file_name
             logger.info(f"배치 작업 이름: {job.get("name")}, 결과 파일 이름: {result_file_name} 다운로드 중...")
-            file_content = self.client.files.download(file=result_file_name)
+            file_content = await self.client.files.download(file=result_file_name)
             # Process file_content (bytes) as needed
             result_text = file_content.decode('utf-8')
 

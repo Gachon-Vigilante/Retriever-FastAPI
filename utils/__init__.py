@@ -38,6 +38,7 @@ Examples:
 """
 
 import os
+import re
 from logging import getLogger
 
 from dotenv import load_dotenv
@@ -179,3 +180,15 @@ def dict_to_xml(data: dict) -> str:
             text = str(value)
         xml_parts.append(f'<{key}>{text}</{key}>')
     return ''.join(xml_parts)
+
+def normalize_whitespace_structured(text: str) -> str:
+    """
+    연속된 스페이스/탭은 단일 스페이스로,
+    연속된 개행 문자는 단일 개행으로 바꿉니다.
+    """
+    # 1. 연속된 스페이스와 탭(수평 공백)을 단일 스페이스로
+    text = re.sub(r'[ \t]+', ' ', text)
+    # 2. 연속된 개행 문자를 단일 개행으로
+    text = re.sub(r'\n+', '\n', text)
+    # 3. 시작과 끝의 불필요한 공백/개행 제거
+    return text.strip()
