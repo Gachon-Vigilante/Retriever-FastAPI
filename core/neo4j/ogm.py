@@ -70,6 +70,7 @@ class SimilarTo(StructuredRel):
             cls,
             post: 'PostNode',
             post_to_compare: 'PostNode',
+            score: float
     ):
         """두 게시글 노드를 업서트하고 시간 순으로 방향성 있는 유사 관계를 연결합니다.
 
@@ -79,13 +80,29 @@ class SimilarTo(StructuredRel):
         """
         merged_post = post.merge()
         merged_post_to_compare = post_to_compare.merge()
-        if merged_post.discovered_at and merged_post_to_compare.discovered_at:
-            if merged_post.discovered_at > merged_post_to_compare.discovered_at:
-                # post가 post_to_compare보다 나중에 생성되었을 경우 post -> post_to_compare
-                merged_post.similar_to.connect(merged_post_to_compare)
-            else:
-                # post가 post_to_compare보다 먼저 생성되었을 경우 post_to_compare -> post
-                merged_post_to_compare.similar_to.connect(merged_post)
+
+        if not (merged_post.discovered_at and merged_post_to_compare.discovered_at):
+            return  # 타임스탬프 없으면 중단
+
+        # 1. 방향 결정 (어느 노드가 시작(from)이고 끝(to)인지)
+        if merged_post.discovered_at > merged_post_to_compare.discovered_at:
+            start_node = merged_post
+            end_node = merged_post_to_compare
+        else:
+            start_node = merged_post_to_compare
+            end_node = merged_post
+
+        # 2. start_node에서 end_node로 가는 관계가 이미 있는지 확인
+        # .relationship()는 관계 객체(SimilarTo) 또는 None을 반환합니다.
+        existing_rel = start_node.similar_to.relationship(end_node)
+
+        if existing_rel:
+            # 3. 관계가 이미 존재하면: score만 업데이트하고 저장
+            existing_rel.score = score
+            existing_rel.save()
+        else:
+            # 4. 관계가 없으면: 새로 연결 (connect)
+            start_node.similar_to.connect(end_node, {'score': score})
 
 
 class Sells(StructuredRel):

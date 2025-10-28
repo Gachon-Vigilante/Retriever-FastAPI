@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from core.setup import database_setup
 from utils import Logger
 from routes import root_router
 from celery_app import setup_celery
@@ -42,6 +43,7 @@ async def lifespan(fastapi_app: FastAPI):
         None: 애플리케이션 실행 중 상태를 유지
               Maintains application running state
     """
+    database_setup()
     logger.debug("Registered Routes:")
     for route in fastapi_app.routes:
         logger.debug(f"  {route}")

@@ -66,6 +66,7 @@ class ChannelFields(StrEnum):
     left = "left"
     broadcast = "broadcast"
     verified = "verified"
+    catalog = "catalog"
 
 
 class Channel(BaseMongoObject):
@@ -273,7 +274,8 @@ class Channel(BaseMongoObject):
     catalog: Catalog = Field(
         default_factory=Catalog,
         title="마약 가격 정보",
-        description="채널에서 판매하는 마약의 가격 정보"
+        description="채널에서 판매하는 마약의 가격 정보",
+        alias=ChannelFields.catalog
     )
 
     # === 검증 메서드들 ===
