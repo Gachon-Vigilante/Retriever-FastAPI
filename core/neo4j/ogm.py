@@ -200,7 +200,7 @@ class ChannelNode(StructuredNode):
     MongoDB의 channels 문서를 그래프 노드로 투영합니다.
     """
     __label__ = "Channel"
-    channel_id = StringProperty(unique_index=True, required=True)
+    channel_id = IntegerProperty(unique_index=True, required=True)
     status = StringProperty()
     title = StringProperty()
     username = StringProperty()
