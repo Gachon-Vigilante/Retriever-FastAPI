@@ -19,7 +19,7 @@ async def synchronize_mongo_and_neo4j():
     """
     posts_collection = MongoCollections().posts
     channel_collection = MongoCollections().channels
-    for post_doc in posts_collection.find():
+    for post_doc in posts_collection.find({"analysis.drugs_related": {"$ne": False}}):
         PostNode.from_mongo(post_doc).merge()
 
     for channel_doc in channel_collection.find():
@@ -68,12 +68,15 @@ async def synchronize_mongo_and_neo4j():
         )
     logger.info("All promotions are synchronized.")
 
-    for post in posts_collection.find({}, projection={
+    for post in posts_collection.find({"analysis.drugs_related": {"$ne": False}}, projection={
         PostFields.link: 1,
         PostFields.similarities: 1
     }):
         for similar_post_info in post.get(PostFields.similarities, []):
-            similar_post = posts_collection.find_one({"_id": ObjectId(similar_post_info["post_id"])})
+            similar_post = posts_collection.find_one({
+                "_id": ObjectId(similar_post_info["post_id"]),
+                "analysis.drugs_related": {"$ne": False}
+            })
             if not similar_post: continue
             SimilarTo.merge(
                 PostNode(link=post.get(PostFields.link)),
