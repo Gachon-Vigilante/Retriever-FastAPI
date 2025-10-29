@@ -21,7 +21,7 @@ from neomodel import (
     config,
     StructuredNode,
     BooleanProperty,
-    DateTimeProperty,
+    DateTimeNeo4jFormatProperty,
     StringProperty,
     IntegerProperty,
     RelationshipTo,
@@ -164,8 +164,8 @@ class PostNode(StructuredNode):
     site_name = StringProperty()
     content = StringProperty()
     cluster = IntegerProperty()
-    discovered_at = DateTimeProperty()
-    updated_at = DateTimeProperty(default_now=True)
+    discovered_at = DateTimeNeo4jFormatProperty()
+    updated_at = DateTimeNeo4jFormatProperty(default_now=True)
     is_deleted = BooleanProperty(default=False)
 
     promotes = RelationshipTo("ChannelNode", "PROMOTES", model=Promotes)
