@@ -1,0 +1,138 @@
+name: Python CI - Build and Push Docker Images
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Log in to OCIR
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ secrets.REGISTRY_HOST }}
+          username: ${{ secrets.OCIR_USERNAME }}
+          password: ${{ secrets.OCIR_PASSWORD }}
+
+      - name: Set Docker image tags
+        run: |
+          BRANCH_NAME=${GITHUB_REF##*/}
+          SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
+          BUILD_VERSION=${{ github.run_number }}-${SHORT_SHA}
+          if [[ "$BRANCH_NAME" == "main" ]]; then
+            echo "BASE_TAG=latest" >> $GITHUB_ENV
+          elif [[ "$BRANCH_NAME" == "develop" ]]; then
+            echo "BASE_TAG=dev" >> $GITHUB_ENV
+          else
+            echo "BASE_TAG=dev" >> $GITHUB_ENV
+          fi
+          echo "BUILD_VERSION=$BUILD_VERSION" >> $GITHUB_ENV
+
+      - name: Build and push fastapi-app image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./Dockerfile
+          target: fastapi-app
+          push: true
+          tags: |
+            ${{ secrets.REGISTRY_PREFIX }}/retriever-fastapi:${{ env.BASE_TAG }}
+            ${{ secrets.REGISTRY_PREFIX }}/retriever-fastapi:${{ env.BUILD_VERSION }}
+
+      - name: Build and push celery-base-worker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./Dockerfile
+          target: celery-base-worker
+          push: true
+          tags: |
+            ${{ secrets.REGISTRY_PREFIX }}/retriever-celery-base-worker:${{ env.BASE_TAG }}
+            ${{ secrets.REGISTRY_PREFIX }}/retriever-celery-base-worker:${{ env.BUILD_VERSION }}
+
+      - name: Build and push celery-ai-worker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./Dockerfile
+          target: celery-ai-worker
+          push: true
+          tags: |
+            ${{ secrets.REGISTRY_PREFIX }}/retriever-celery-ai-worker:${{ env.BASE_TAG }}
+            ${{ secrets.REGISTRY_PREFIX }}/retriever-celery-ai-worker:${{ env.BUILD_VERSION }}
+
+      - name: Build and push text2vec-transformers image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./Dockerfile.transformers
+          push: true
+          tags: |
+            ${{ secrets.REGISTRY_PREFIX }}/retriever-text2vec-transformers:${{ env.BASE_TAG }}
+            ${{ secrets.REGISTRY_PREFIX }}/retriever-text2vec-transformers:${{ env.BUILD_VERSION }}
+
+  sync-infra:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update infra repo deployments
+        env:
+          K8S_REPO_TOKEN: ${{ secrets.K8S_REPO_TOKEN }}
+          GIT_USER_NAME: ${{ secrets.GIT_USER_NAME }}
+          GIT_USER_EMAIL: ${{ secrets.GIT_USER_EMAIL }}
+          BUILD_VERSION: ${{ env.BUILD_VERSION }}
+          REGISTRY_PREFIX: ${{ secrets.REGISTRY_PREFIX }}
+        run: |
+          git clone --single-branch --branch main https://x-access-token:${K8S_REPO_TOKEN}@github.com/Gachon-Vigilante/Retriever-INFRA.git
+          cd Retriever-INFRA
+
+          deployments=(
+            "production/fastapi/deployment.yaml,retriever-fastapi"
+            "async/celery/beat-deployment.yaml,retriever-celery-base-worker"
+            "async/celery/worker-analyze-deployment.yaml,retriever-celery-base-worker"
+            "async/celery/worker-crawl-deployment.yaml,retriever-celery-base-worker"
+            "async/celery/worker-poll-deployment.yaml,retriever-celery-base-worker"
+            "async/celery/worker-search-deployment.yaml,retriever-celery-base-worker"
+            "async/celery/worker-telegram-deployment.yaml,retriever-celery-base-worker"
+            "async/celery/worker-ai-deployment.yaml,retriever-celery-ai-worker"
+            "database/text2vec-transformers/deployment.yaml,retriever-text2vec-transformers"
+          )
+
+          for item in "${deployments[@]}"; do
+            IFS=',' read -r file image_name <<< "$item"
+            image="${REGISTRY_PREFIX}/${image_name}:${BUILD_VERSION}"
+            if [[ -f "$file" ]]; then
+              sed -i "s|image:.*|image: $image|g" "$file"
+            else
+              echo "Deployment file $file not found. Skipping update."
+            fi
+          done
+
+          git config user.name "${GIT_USER_NAME}"
+          git config user.email "${GIT_USER_EMAIL}"
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git add .
+            git commit -m "Chore: Fast API 이미지 업데이트 - ${BUILD_VERSION} (from ${GITHUB_REPOSITORY}:${GITHUB_REF##*/})"
+            git push https://x-access-token:${K8S_REPO_TOKEN}@github.com/Gachon-Vigilante/Retriever-INFRA.git
+          else
+            echo "No changes to deployment files."
+          fi
