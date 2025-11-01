@@ -11,12 +11,22 @@ permissions:
   contents: read
 
 jobs:
-  build-and-push:
+  build-fastapi-app:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Free up disk space
+        run: |
+          echo "Initial disk space:"
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf $AGENT_TOOLSDIRECTORY
+          echo "Disk space after cleanup:"
+          df -h
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -58,6 +68,53 @@ jobs:
             ${{ secrets.REGISTRY_PREFIX }}/retriever-fastapi:${{ env.BASE_TAG }}
             ${{ secrets.REGISTRY_PREFIX }}/retriever-fastapi:${{ env.BUILD_VERSION }}
 
+  build-celery-base-worker:
+    needs: build-fastapi-app
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Free up disk space
+        run: |
+          echo "Initial disk space:"
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf $AGENT_TOOLSDIRECTORY
+          echo "Disk space after cleanup:"
+          df -h
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Log in to OCIR
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ secrets.REGISTRY_HOST }}
+          username: ${{ secrets.OCIR_USERNAME }}
+          password: ${{ secrets.OCIR_PASSWORD }}
+
+      - name: Set Docker image tags
+        run: |
+          BRANCH_NAME=${GITHUB_REF##*/}
+          SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
+          BUILD_VERSION=${{ github.run_number }}-${SHORT_SHA}
+          if [[ "$BRANCH_NAME" == "main" ]]; then
+            echo "BASE_TAG=latest" >> $GITHUB_ENV
+          elif [[ "$BRANCH_NAME" == "develop" ]]; then
+            echo "BASE_TAG=dev" >> $GITHUB_ENV
+          else
+            echo "BASE_TAG=dev" >> $GITHUB_ENV
+          fi
+          echo "BUILD_VERSION=$BUILD_VERSION" >> $GITHUB_ENV
+
       - name: Build and push celery-base-worker image
         uses: docker/build-push-action@v4
         with:
@@ -68,6 +125,53 @@ jobs:
           tags: |
             ${{ secrets.REGISTRY_PREFIX }}/retriever-celery-base-worker:${{ env.BASE_TAG }}
             ${{ secrets.REGISTRY_PREFIX }}/retriever-celery-base-worker:${{ env.BUILD_VERSION }}
+
+  build-celery-ai-worker:
+    needs: build-celery-base-worker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Free up disk space
+        run: |
+          echo "Initial disk space:"
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf $AGENT_TOOLSDIRECTORY
+          echo "Disk space after cleanup:"
+          df -h
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Log in to OCIR
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ secrets.REGISTRY_HOST }}
+          username: ${{ secrets.OCIR_USERNAME }}
+          password: ${{ secrets.OCIR_PASSWORD }}
+
+      - name: Set Docker image tags
+        run: |
+          BRANCH_NAME=${GITHUB_REF##*/}
+          SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
+          BUILD_VERSION=${{ github.run_number }}-${SHORT_SHA}
+          if [[ "$BRANCH_NAME" == "main" ]]; then
+            echo "BASE_TAG=latest" >> $GITHUB_ENV
+          elif [[ "$BRANCH_NAME" == "develop" ]]; then
+            echo "BASE_TAG=dev" >> $GITHUB_ENV
+          else
+            echo "BASE_TAG=dev" >> $GITHUB_ENV
+          fi
+          echo "BUILD_VERSION=$BUILD_VERSION" >> $GITHUB_ENV
 
       - name: Build and push celery-ai-worker image
         uses: docker/build-push-action@v4
@@ -80,18 +184,8 @@ jobs:
             ${{ secrets.REGISTRY_PREFIX }}/retriever-celery-ai-worker:${{ env.BASE_TAG }}
             ${{ secrets.REGISTRY_PREFIX }}/retriever-celery-ai-worker:${{ env.BUILD_VERSION }}
 
-      - name: Build and push text2vec-transformers image
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          file: ./Dockerfile.transformers
-          push: true
-          tags: |
-            ${{ secrets.REGISTRY_PREFIX }}/retriever-text2vec-transformers:${{ env.BASE_TAG }}
-            ${{ secrets.REGISTRY_PREFIX }}/retriever-text2vec-transformers:${{ env.BUILD_VERSION }}
-
   sync-infra:
-    needs: build-and-push
+    needs: build-celery-ai-worker
     runs-on: ubuntu-latest
     steps:
       - name: Update infra repo deployments
@@ -114,7 +208,6 @@ jobs:
             "async/celery/worker-search-deployment.yaml,retriever-celery-base-worker"
             "async/celery/worker-telegram-deployment.yaml,retriever-celery-base-worker"
             "async/celery/worker-ai-deployment.yaml,retriever-celery-ai-worker"
-            "database/text2vec-transformers/deployment.yaml,retriever-text2vec-transformers"
           )
 
           for item in "${deployments[@]}"; do
