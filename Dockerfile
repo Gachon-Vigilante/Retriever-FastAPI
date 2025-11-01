@@ -4,7 +4,7 @@
 # uv 설치 및 pyproject.toml, uv.lock 파일 복사
 FROM python:3.13-slim AS base
 WORKDIR /app
-RUN pip install uv
+RUN python -m pip install uv
 COPY pyproject.toml ./
 
 # 2. 공통 의존성만 설치한 'deps' 스테이지
