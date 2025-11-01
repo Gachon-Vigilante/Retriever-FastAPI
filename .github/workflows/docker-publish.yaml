@@ -64,6 +64,7 @@ jobs:
           file: ./Dockerfile
           target: fastapi-app
           push: true
+          platforms: linux/arm64
           tags: |
             ${{ secrets.REGISTRY_PREFIX }}/retriever-fastapi:${{ env.BASE_TAG }}
             ${{ secrets.REGISTRY_PREFIX }}/retriever-fastapi:${{ env.BUILD_VERSION }}
@@ -122,6 +123,7 @@ jobs:
           file: ./Dockerfile
           target: celery-base-worker
           push: true
+          platforms: linux/arm64
           tags: |
             ${{ secrets.REGISTRY_PREFIX }}/retriever-celery-base-worker:${{ env.BASE_TAG }}
             ${{ secrets.REGISTRY_PREFIX }}/retriever-celery-base-worker:${{ env.BUILD_VERSION }}
@@ -180,6 +182,7 @@ jobs:
           file: ./Dockerfile
           target: celery-ai-worker
           push: true
+          platforms: linux/arm64
           tags: |
             ${{ secrets.REGISTRY_PREFIX }}/retriever-celery-ai-worker:${{ env.BASE_TAG }}
             ${{ secrets.REGISTRY_PREFIX }}/retriever-celery-ai-worker:${{ env.BUILD_VERSION }}
