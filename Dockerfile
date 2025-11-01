@@ -39,6 +39,9 @@ CMD ["uv", "run", "celery", "-A", "celery_app.app", "worker", "-l", "info"]
 
 # 6. 무거운 AI 모듈이 필요한 Celery 워커를 위한 최종 이미지
 FROM builder AS celery-ai-worker
+# C extensions을 컴파일 하기 위한 build-essential 설치
+RUN apt-get update
+RUN apt-get install -y build-essential
 # 'ai_worker' extra를 설치 (torch, transformers 등)
 RUN uv pip install --no-cache '.[ai_worker]'
 CMD ["uv", "run", "celery", "-A", "celery_app.app", "worker", "-l", "info"]
