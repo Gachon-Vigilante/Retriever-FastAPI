@@ -189,6 +189,7 @@ jobs:
 
   sync-infra:
 #    needs: [build-fastapi-app, build-celery-base-worker, build-celery-ai-worker]
+    needs: build-fastapi-app
     runs-on: ubuntu-latest
     steps:
       - name: Update infra repo deployments
