@@ -197,7 +197,8 @@ jobs:
           K8S_REPO_TOKEN: ${{ secrets.K8S_REPO_TOKEN }}
           GIT_USER_NAME: ${{ secrets.GIT_USER_NAME }}
           GIT_USER_EMAIL: ${{ secrets.GIT_USER_EMAIL }}
-          BUILD_VERSION: ${{ needs.build-celery-ai-worker.outputs.build_version }}
+#          BUILD_VERSION: ${{ needs.build-celery-ai-worker.outputs.build_version }}
+          BUILD_VERSION: ${{ needs.build-fastapi-app.outputs.build_version }}
           REGISTRY_PREFIX: ${{ secrets.REGISTRY_PREFIX }}
         run: |
           git clone --single-branch --branch main https://x-access-token:${K8S_REPO_TOKEN}@github.com/Gachon-Vigilante/Retriever-INFRA.git
@@ -218,7 +219,7 @@ jobs:
             IFS=',' read -r file image_name <<< "$item"
             image="${REGISTRY_PREFIX}/${image_name}:${BUILD_VERSION}"
             if [[ -f "$file" ]]; then
-               sed -i "s|image:.*|image: ${image}|g" "$file"
+              sed -i "s|image:.*|image: $image|g" "$file"
             else
               echo "Deployment file $file not found. Skipping update."
             fi
