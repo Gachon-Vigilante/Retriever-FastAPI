@@ -56,14 +56,15 @@ app = FastAPI(lifespan=lifespan)
 # "*"는 모든 오리진을 허용함을 의미합니다.
 # 보안을 위해 실제 프로덕션 환경에서는 구체적인 도메인을 명시하는 것이 좋습니다.
 origins = [
-    "*",
+    "https://www.retriever.ai.kr/",
+    "https://retriever.ai.kr/",
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,       # origins 목록에 있는 도메인에서의 요청을 허용
     allow_credentials=True,    # 쿠키를 포함한 요청을 허용 (True 설정 시 allow_origins="*" 사용 불가)
-    allow_methods=["*"],       # 모든 HTTP 메소드 허용 (GET, POST, PUT, DELETE 등)
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],       # 모든 HTTP 메소드 허용 (GET, POST, PUT, DELETE 등)
     allow_headers=["*"],       # 모든 HTTP 헤더 허용
 )
 
