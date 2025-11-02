@@ -189,6 +189,7 @@ jobs:
 
   sync-infra:
 #    needs: [build-fastapi-app, build-celery-base-worker, build-celery-ai-worker]
+    needs: build-fastapi-app
     runs-on: ubuntu-latest
     steps:
       - name: Update infra repo deployments
@@ -196,7 +197,8 @@ jobs:
           K8S_REPO_TOKEN: ${{ secrets.K8S_REPO_TOKEN }}
           GIT_USER_NAME: ${{ secrets.GIT_USER_NAME }}
           GIT_USER_EMAIL: ${{ secrets.GIT_USER_EMAIL }}
-          BUILD_VERSION: ${{ needs.build-celery-ai-worker.outputs.build_version }}
+#          BUILD_VERSION: ${{ needs.build-celery-ai-worker.outputs.build_version }}
+          BUILD_VERSION: ${{ needs.build-fastapi-app.outputs.build_version }}
           REGISTRY_PREFIX: ${{ secrets.REGISTRY_PREFIX }}
         run: |
           git clone --single-branch --branch main https://x-access-token:${K8S_REPO_TOKEN}@github.com/Gachon-Vigilante/Retriever-INFRA.git
@@ -204,13 +206,6 @@ jobs:
 
           deployments=(
             "production/fastapi/deployment.yaml,retriever-fastapi"
-#            "async/celery/beat-deployment.yaml,retriever-celery-base-worker"
-#            "async/celery/worker-analyze-deployment.yaml,retriever-celery-base-worker"
-#            "async/celery/worker-crawl-deployment.yaml,retriever-celery-base-worker"
-#            "async/celery/worker-poll-deployment.yaml,retriever-celery-base-worker"
-#            "async/celery/worker-search-deployment.yaml,retriever-celery-base-worker"
-#            "async/celery/worker-telegram-deployment.yaml,retriever-celery-base-worker"
-#            "async/celery/worker-ai-deployment.yaml,retriever-celery-ai-worker"
           )
 
           for item in "${deployments[@]}"; do
