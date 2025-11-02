@@ -76,6 +76,8 @@ async def synchronize_mongo_and_neo4j():
             similar_post = posts_collection.find_one({
                 "_id": ObjectId(similar_post_info["post_id"]),
                 "analysis.drugs_related": {"$ne": False}
+            }, projection={
+                PostFields.link: 1,
             })
             if not similar_post: continue
             SimilarTo.merge(
