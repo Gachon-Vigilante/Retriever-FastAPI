@@ -218,7 +218,7 @@ jobs:
             IFS=',' read -r file image_name <<< "$item"
             image="${REGISTRY_PREFIX}/${image_name}:${BUILD_VERSION}"
             if [[ -f "$file" ]]; then
-              sed -i "s|image:.*|image: $image|g" "$file"
+               sed -i "s|image:.*|image: ${image}|g" "$file"
             else
               echo "Deployment file $file not found. Skipping update."
             fi
