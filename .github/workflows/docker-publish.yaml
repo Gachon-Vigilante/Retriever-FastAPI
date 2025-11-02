@@ -204,8 +204,8 @@ jobs:
           git clone --single-branch --branch main https://x-access-token:${K8S_REPO_TOKEN}@github.com/Gachon-Vigilante/Retriever-INFRA.git
           cd Retriever-INFRA
 
-          deployments=(
-            "production/fastapi/deployment.yaml,retriever-fastapi"
+#          deployments=(
+#            "production/fastapi/deployment.yaml,retriever-fastapi"
 #            "async/celery/beat-deployment.yaml,retriever-celery-base-worker"
 #            "async/celery/worker-analyze-deployment.yaml,retriever-celery-base-worker"
 #            "async/celery/worker-crawl-deployment.yaml,retriever-celery-base-worker"
@@ -213,6 +213,10 @@ jobs:
 #            "async/celery/worker-search-deployment.yaml,retriever-celery-base-worker"
 #            "async/celery/worker-telegram-deployment.yaml,retriever-celery-base-worker"
 #            "async/celery/worker-ai-deployment.yaml,retriever-celery-ai-worker"
+#          )
+
+          deployments=(
+            "production/fastapi/deployment.yaml,retriever-fastapi"
           )
 
           for item in "${deployments[@]}"; do
