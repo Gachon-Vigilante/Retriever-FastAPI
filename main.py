@@ -56,8 +56,8 @@ app = FastAPI(lifespan=lifespan)
 # "*"는 모든 오리진을 허용함을 의미합니다.
 # 보안을 위해 실제 프로덕션 환경에서는 구체적인 도메인을 명시하는 것이 좋습니다.
 origins = [
-    "https://www.retriever.ai.kr/",
-    "https://retriever.ai.kr/",
+    "https://www.retriever.ai.kr",
+    "https://retriever.ai.kr",
 ]
 
 app.add_middleware(
